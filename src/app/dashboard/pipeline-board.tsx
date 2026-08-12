@@ -18,13 +18,14 @@ function formatGBP(pence: number | null) {
 }
 
 export default function PipelineBoard({
-  initialClients,
+  clients,
+  setClients,
   userId,
 }: {
-  initialClients: ClientRecord[];
+  clients: ClientRecord[];
+  setClients: React.Dispatch<React.SetStateAction<ClientRecord[]>>;
   userId: string;
 }) {
-  const [clients, setClients] = useState<ClientRecord[]>(initialClients);
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
   const [adding, setAdding] = useState(false);
