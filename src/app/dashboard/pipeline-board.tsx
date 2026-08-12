@@ -4,6 +4,7 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { ClientRecord, Stage } from "@/lib/types";
 import TimeTracker from "./time-tracker";
+import InvoicePanel from "./invoice-panel";
 
 const STAGES: { key: Stage; label: string }[] = [
   { key: "lead", label: "Lead" },
@@ -237,6 +238,11 @@ export default function PipelineBoard({
                     )}
 
                     <TimeTracker clientId={c.id} userId={userId} />
+                    <InvoicePanel
+                      clientId={c.id}
+                      userId={userId}
+                      defaultFixedFeePence={c.value_pence}
+                    />
                   </div>
                 ))}
               {clients.filter((c) => c.stage === stage.key).length === 0 && (
