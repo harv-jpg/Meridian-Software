@@ -32,6 +32,8 @@ export default function PipelineBoard({
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverStage, setDragOverStage] = useState<Stage | null>(null);
 
   const supabase = createClient();
   const selectedClient = clients.find((c) => c.id === selectedId) ?? null;
@@ -62,7 +64,7 @@ export default function PipelineBoard({
     setValue("");
   }
 
-  async function handleStageChange(clientId: string, newStage: Stage) {
+  async function moveToStage(clientId: string, newStage: Stage) {
     setClients((prev) =>
       prev.map((c) => (c.id === clientId ? { ...c, stage: newStage } : c))
     );
@@ -92,6 +94,29 @@ export default function PipelineBoard({
     setClients((prev) =>
       prev.map((c) => (c.id === selectedId ? { ...c, notes } : c))
     );
+  }
+
+  function handleDragStart(clientId: string) {
+    setDraggingId(clientId);
+  }
+
+  function handleDragEnd() {
+    setDraggingId(null);
+    setDragOverStage(null);
+  }
+
+  function handleDragOverColumn(e: React.DragEvent, stage: Stage) {
+    e.preventDefault();
+    setDragOverStage(stage);
+  }
+
+  function handleDropOnColumn(e: React.DragEvent, stage: Stage) {
+    e.preventDefault();
+    setDragOverStage(null);
+    if (draggingId) {
+      moveToStage(draggingId, stage);
+    }
+    setDraggingId(null);
   }
 
   return (
@@ -138,18 +163,31 @@ export default function PipelineBoard({
 
       <div className="grid gap-4 md:grid-cols-5">
         {STAGES.map((stage) => (
-          <div key={stage.key}>
+          <div
+            key={stage.key}
+            onDragOver={(e) => handleDragOverColumn(e, stage.key)}
+            onDragLeave={() => setDragOverStage((prev) => (prev === stage.key ? null : prev))}
+            onDrop={(e) => handleDropOnColumn(e, stage.key)}
+            className={`rounded-md p-2 transition ${
+              dragOverStage === stage.key ? "bg-teal/10 ring-2 ring-teal/40" : ""
+            }`}
+          >
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
               {stage.label} · {clients.filter((c) => c.stage === stage.key).length}
             </h3>
-            <div className="space-y-2">
+            <div className="space-y-2 min-h-[40px]">
               {clients
                 .filter((c) => c.stage === stage.key)
                 .map((c) => (
                   <div
                     key={c.id}
+                    draggable
+                    onDragStart={() => handleDragStart(c.id)}
+                    onDragEnd={handleDragEnd}
                     onClick={() => setSelectedId(c.id)}
-                    className="cursor-pointer rounded border border-ink/10 bg-white p-3 text-sm transition hover:border-teal/50 hover:shadow-sm"
+                    className={`cursor-grab rounded border border-ink/10 bg-white p-3 text-sm transition active:cursor-grabbing hover:border-teal/50 hover:shadow-sm ${
+                      draggingId === c.id ? "opacity-40" : ""
+                    }`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="font-medium">{c.name}</div>
@@ -167,24 +205,10 @@ export default function PipelineBoard({
                     <div className="mt-1 font-mono text-xs text-slate-500">
                       {formatGBP(c.value_pence)}
                     </div>
-                    <select
-                      value={c.stage}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) =>
-                        handleStageChange(c.id, e.target.value as Stage)
-                      }
-                      className="mt-2 w-full rounded border border-ink/15 px-2 py-1 text-xs"
-                    >
-                      {STAGES.map((s) => (
-                        <option key={s.key} value={s.key}>
-                          {s.label}
-                        </option>
-                      ))}
-                    </select>
                   </div>
                 ))}
               {clients.filter((c) => c.stage === stage.key).length === 0 && (
-                <p className="text-xs text-slate-400">No clients here yet.</p>
+                <p className="text-xs text-slate-400">Drop here</p>
               )}
             </div>
           </div>
