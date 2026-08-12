@@ -8,3 +8,11 @@ export interface ClientRecord {
   notes: string | null;
   created_at: string;
 }
+
+export interface TimeEntry {
+  id: string;
+  client_id: string;
+  description: string | null;
+  minutes: number;
+  created_at: string;
+}
