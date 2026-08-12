@@ -29,6 +29,9 @@ export default function PipelineBoard({
   const [value, setValue] = useState("");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState("");
+  const [openNotesId, setOpenNotesId] = useState<string | null>(null);
+  const [notesDraft, setNotesDraft] = useState("");
+  const [savingNotes, setSavingNotes] = useState(false);
 
   const supabase = createClient();
 
@@ -71,6 +74,47 @@ export default function PipelineBoard({
     if (error) {
       alert("Could not update stage — please refresh and try again.");
     }
+  }
+
+  async function handleDelete(clientId: string) {
+    const confirmed = window.confirm("Delete this client? This can't be undone.");
+    if (!confirmed) return;
+
+    const previous = clients;
+    setClients((prev) => prev.filter((c) => c.id !== clientId));
+
+    const { error } = await supabase.from("clients").delete().eq("id", clientId);
+
+    if (error) {
+      setClients(previous);
+      alert("Could not delete — please try again.");
+    }
+  }
+
+  function openNotes(client: ClientRecord) {
+    setOpenNotesId(client.id);
+    setNotesDraft(client.notes ?? "");
+  }
+
+  async function saveNotes(clientId: string) {
+    setSavingNotes(true);
+
+    const { error } = await supabase
+      .from("clients")
+      .update({ notes: notesDraft })
+      .eq("id", clientId);
+
+    setSavingNotes(false);
+
+    if (error) {
+      alert("Could not save notes — please try again.");
+      return;
+    }
+
+    setClients((prev) =>
+      prev.map((c) => (c.id === clientId ? { ...c, notes: notesDraft } : c))
+    );
+    setOpenNotesId(null);
   }
 
   return (
@@ -129,7 +173,16 @@ export default function PipelineBoard({
                     key={c.id}
                     className="rounded border border-ink/10 bg-white p-3 text-sm"
                   >
-                    <div className="font-medium">{c.name}</div>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="font-medium">{c.name}</div>
+                      <button
+                        onClick={() => handleDelete(c.id)}
+                        title="Delete client"
+                        className="text-xs text-slate-400 hover:text-red-600"
+                      >
+                        ✕
+                      </button>
+                    </div>
                     <div className="mt-1 font-mono text-xs text-slate-500">
                       {formatGBP(c.value_pence)}
                     </div>
@@ -146,6 +199,40 @@ export default function PipelineBoard({
                         </option>
                       ))}
                     </select>
+
+                    {openNotesId === c.id ? (
+                      <div className="mt-2">
+                        <textarea
+                          value={notesDraft}
+                          onChange={(e) => setNotesDraft(e.target.value)}
+                          rows={3}
+                          className="w-full rounded border border-ink/15 px-2 py-1 text-xs"
+                          placeholder="Notes on this client…"
+                        />
+                        <div className="mt-1 flex gap-2">
+                          <button
+                            onClick={() => saveNotes(c.id)}
+                            disabled={savingNotes}
+                            className="rounded bg-ink px-2 py-1 text-xs font-medium text-paper disabled:opacity-60"
+                          >
+                            {savingNotes ? "Saving…" : "Save"}
+                          </button>
+                          <button
+                            onClick={() => setOpenNotesId(null)}
+                            className="rounded border border-ink/15 px-2 py-1 text-xs"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => openNotes(c)}
+                        className="mt-2 text-left text-xs text-teal underline"
+                      >
+                        {c.notes ? "Edit notes" : "Add notes"}
+                      </button>
+                    )}
                   </div>
                 ))}
               {clients.filter((c) => c.stage === stage.key).length === 0 && (
