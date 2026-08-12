@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "./logout-button";
 import PipelineBoard from "./pipeline-board";
+import RevenueSummary from "./revenue-summary";
 import type { ClientRecord } from "@/lib/types";
 
 export default async function DashboardPage() {
@@ -19,6 +20,8 @@ export default async function DashboardPage() {
     .select("*")
     .order("created_at", { ascending: false });
 
+  const clientList = (clients ?? []) as ClientRecord[];
+
   return (
     <main className="min-h-screen px-6 py-10">
       <div className="mx-auto max-w-5xl">
@@ -30,10 +33,8 @@ export default async function DashboardPage() {
         <p className="mt-2 text-slate-500">Signed in as {user.email}</p>
 
         <div className="mt-8">
-          <PipelineBoard
-            initialClients={(clients ?? []) as ClientRecord[]}
-            userId={user.id}
-          />
+          <RevenueSummary clients={clientList} />
+          <PipelineBoard initialClients={clientList} userId={user.id} />
         </div>
       </div>
     </main>
