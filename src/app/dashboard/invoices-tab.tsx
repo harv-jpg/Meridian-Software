@@ -81,13 +81,25 @@ export default function InvoicesTab({
       return;
     }
 
-    if (basis === "time") {
-      await supabase
+        if (basis === "time") {
+      const { data: billed, error: billError } = await supabase
         .from("time_entries")
         .update({ invoice_id: invoice.id })
         .eq("client_id", clientId)
-        .is("invoice_id", null);
-      setUnbilledMinutes(0);
+        .is("invoice_id", null)
+        .select("id");
+
+      // A blocked update matches zero rows without raising an error, which
+      // would leave these hours unbilled and let the next invoice charge for
+      // them a second time. Only clear the counter once rows really changed.
+      if (billError || (billed ?? []).length === 0) {
+        alert(
+          "Invoice created, but the tracked time could not be marked as billed — " +
+            "those hours are still showing as unbilled. Check before sending."
+        );
+      } else {
+        setUnbilledMinutes(0);
+      }
     }
 
     setInvoices((prev) => [invoice as Invoice, ...(prev ?? [])]);
