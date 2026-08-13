@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Meridian",
+  title: "Setu",
   description: "The AI-powered CRM for freelancers and consultants.",
 };
 
