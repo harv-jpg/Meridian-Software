@@ -172,4 +172,112 @@ export default function PipelineBoard({
                 </h3>
                 <span className="ml-auto font-mono text-xs text-slate-400">
                   {inStage.length}
-                </
+                </span>
+              </div>
+
+              {stageValue > 0 && (
+                <p className="mb-2 px-1 font-mono text-[11px] text-slate-400">
+                  {formatGBPShort(stageValue)}
+                </p>
+              )}
+
+              <div className="min-h-[60px] space-y-2">
+                {inStage.map((c) => (
+                  <article
+                    key={c.id}
+                    draggable
+                    onDragStart={() => setDraggingId(c.id)}
+                    onDragEnd={() => {
+                      setDraggingId(null);
+                      setDragOverStage(null);
+                    }}
+                    onClick={() => setSelectedId(c.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedId(c.id);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    className={`group relative cursor-grab overflow-hidden rounded-lg border
+                                border-ink/10 bg-white p-3 pl-4 text-sm shadow-card transition
+                                active:cursor-grabbing hover:-translate-y-0.5 hover:border-ink/20
+                                hover:shadow-lift ${
+                                  draggingId === c.id
+                                    ? "rotate-1 opacity-50"
+                                    : ""
+                                }`}
+                  >
+                    {/* Stage accent, so a card still reads as its stage when
+                        dragged away from its column. */}
+                    <span
+                      className={`absolute inset-y-0 left-0 w-1 ${stage.bar}`}
+                      aria-hidden="true"
+                    />
+
+                    <div className="flex items-start justify-between gap-2">
+                      <h4 className="font-medium leading-snug">{c.name}</h4>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(c.id);
+                        }}
+                        aria-label={`Delete ${c.name}`}
+                        className="-mr-1 -mt-1 shrink-0 rounded p-1 text-xs text-slate-300
+                                   opacity-0 transition hover:bg-red-50 hover:text-red-600
+                                   focus-visible:opacity-100 group-hover:opacity-100"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <span className="font-mono text-xs text-slate-500">
+                        {formatGBP(c.value_pence)}
+                      </span>
+                      {c.notes && (
+                        <span
+                          title="Has notes"
+                          className="text-xs text-slate-300"
+                          aria-label="Has notes"
+                        >
+                          ✎
+                        </span>
+                      )}
+                    </div>
+                  </article>
+                ))}
+
+                {inStage.length === 0 && (
+                  <p
+                    className={`rounded-lg border border-dashed px-2 py-4 text-center text-xs transition ${
+                      isDropTarget
+                        ? "border-transparent text-slate-500"
+                        : "border-ink/10 text-slate-300"
+                    }`}
+                  >
+                    {isDropTarget ? "Drop here" : "Empty"}
+                  </p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {selectedClient && (
+        <ClientDetailDrawer
+          // Keyed so switching clients resets the panel's tab and drafts
+          // instead of carrying one client's state into another.
+          key={selectedClient.id}
+          client={selectedClient}
+          userId={userId}
+          onClose={() => setSelectedId(null)}
+          onNotesSaved={handleNotesSaved}
+          onStageChange={handleStageChange}
+        />
+      )}
+    </div>
+  );
+}
