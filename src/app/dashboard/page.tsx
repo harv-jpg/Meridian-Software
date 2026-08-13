@@ -20,21 +20,29 @@ export default async function DashboardPage() {
     .order("created_at", { ascending: false });
 
   return (
-    <main className="min-h-screen px-6 py-10">
-      <div className="mx-auto max-w-5xl">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Pipeline</h1>
+    <main className="min-h-screen">
+      <header className="border-b border-ink/10 bg-white/60 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+          <div className="flex items-center gap-3">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-ink text-sm font-bold text-paper">
+              S
+            </span>
+            <div>
+              <h1 className="text-lg font-semibold leading-none tracking-tight">
+                Pipeline
+              </h1>
+              <p className="mt-1 text-xs text-slate-400">{user.email}</p>
+            </div>
+          </div>
           <LogoutButton />
         </div>
+      </header>
 
-        <p className="mt-2 text-slate-500">Signed in as {user.email}</p>
-
-        <div className="mt-8">
-          <DashboardClient
-            initialClients={(clients ?? []) as ClientRecord[]}
-            userId={user.id}
-          />
-        </div>
+      <div className="mx-auto max-w-6xl px-6 py-8">
+        <DashboardClient
+          initialClients={(clients ?? []) as ClientRecord[]}
+          userId={user.id}
+        />
       </div>
     </main>
   );
