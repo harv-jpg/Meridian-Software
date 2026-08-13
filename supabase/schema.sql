@@ -1,7 +1,17 @@
--- Run this in the Supabase SQL Editor (Dashboard → SQL Editor → New query)
--- once you've created your project. This sets up the first real table:
--- the pipeline of clients/deals.
+-- Meridian — full database schema.
+--
+-- Run this in the Supabase SQL Editor (Dashboard → SQL Editor → New query).
+--
+-- Safe to run against an existing project: every `create table` is guarded by
+-- `if not exists`, so it will not alter tables you already have. The policy
+-- section drops and recreates by name, so it is also safe to re-run — and it
+-- is the only part that changes anything on an already-built project.
 
+-- ---------------------------------------------------------------------------
+-- Tables
+-- ---------------------------------------------------------------------------
+
+-- The pipeline of clients/deals.
 create table if not exists public.clients (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -13,21 +23,177 @@ create table if not exists public.clients (
   updated_at timestamptz not null default now()
 );
 
--- Row Level Security: every freelancer only ever sees their own clients.
-alter table public.clients enable row level security;
+-- Defined before time_entries, which carries a foreign key to it.
+create table if not exists public.invoices (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  client_id uuid not null references public.clients(id) on delete cascade,
+  amount_pence integer not null,
+  basis text not null check (basis in ('time', 'fixed')),
+  status text not null default 'draft' check (status in ('draft', 'sent', 'paid')),
+  created_at timestamptz not null default now()
+);
 
+-- Tracked work. `invoice_id` is null until the entry is billed; that null is
+-- what the invoice generator uses to find unbilled time, so it must be
+-- writable (see the UPDATE policy below).
+create table if not exists public.time_entries (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  client_id uuid not null references public.clients(id) on delete cascade,
+  description text,
+  minutes integer not null check (minutes > 0),
+  invoice_id uuid references public.invoices(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+-- `sign_token` is the unguessable value in the public /sign/[token] URL. It is
+-- never exposed by a policy — the signing page reaches it only through the
+-- security-definer functions at the bottom of this file.
+create table if not exists public.contracts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  client_id uuid not null references public.clients(id) on delete cascade,
+  title text not null,
+  body text not null,
+  sign_token uuid not null unique default gen_random_uuid(),
+  status text not null default 'draft' check (status in ('draft', 'sent', 'signed')),
+  signed_name text,
+  signed_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------------------
+-- Row Level Security
+-- ---------------------------------------------------------------------------
+-- Every freelancer only ever sees their own rows. Note that a *missing* policy
+-- is not a loud failure: with RLS enabled, an operation with no matching policy
+-- silently affects zero rows. Each table needs all four verbs the app uses.
+
+alter table public.clients enable row level security;
+alter table public.time_entries enable row level security;
+alter table public.invoices enable row level security;
+alter table public.contracts enable row level security;
+
+-- clients
+drop policy if exists "Users can view their own clients" on public.clients;
 create policy "Users can view their own clients"
   on public.clients for select
   using (auth.uid() = user_id);
 
+drop policy if exists "Users can insert their own clients" on public.clients;
 create policy "Users can insert their own clients"
   on public.clients for insert
   with check (auth.uid() = user_id);
 
+drop policy if exists "Users can update their own clients" on public.clients;
 create policy "Users can update their own clients"
   on public.clients for update
   using (auth.uid() = user_id);
 
+drop policy if exists "Users can delete their own clients" on public.clients;
 create policy "Users can delete their own clients"
   on public.clients for delete
   using (auth.uid() = user_id);
+
+-- time_entries
+drop policy if exists "Users can view their own time entries" on public.time_entries;
+create policy "Users can view their own time entries"
+  on public.time_entries for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own time entries" on public.time_entries;
+create policy "Users can insert their own time entries"
+  on public.time_entries for insert
+  with check (auth.uid() = user_id);
+
+-- Required by the invoice generator, which stamps `invoice_id` onto unbilled
+-- entries after creating an invoice. Without this policy that write matches no
+-- rows and reports no error, so the same hours stay unbilled and get billed
+-- again on the next invoice.
+drop policy if exists "Users can update their own time entries" on public.time_entries;
+create policy "Users can update their own time entries"
+  on public.time_entries for update
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own time entries" on public.time_entries;
+create policy "Users can delete their own time entries"
+  on public.time_entries for delete
+  using (auth.uid() = user_id);
+
+-- invoices
+drop policy if exists "Users can view their own invoices" on public.invoices;
+create policy "Users can view their own invoices"
+  on public.invoices for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own invoices" on public.invoices;
+create policy "Users can insert their own invoices"
+  on public.invoices for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own invoices" on public.invoices;
+create policy "Users can update their own invoices"
+  on public.invoices for update
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own invoices" on public.invoices;
+create policy "Users can delete their own invoices"
+  on public.invoices for delete
+  using (auth.uid() = user_id);
+
+-- contracts
+drop policy if exists "Owners can view their own contracts" on public.contracts;
+create policy "Owners can view their own contracts"
+  on public.contracts for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Owners can insert their own contracts" on public.contracts;
+create policy "Owners can insert their own contracts"
+  on public.contracts for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Owners can update their own contracts" on public.contracts;
+create policy "Owners can update their own contracts"
+  on public.contracts for update
+  using (auth.uid() = user_id);
+
+drop policy if exists "Owners can delete their own contracts" on public.contracts;
+create policy "Owners can delete their own contracts"
+  on public.contracts for delete
+  using (auth.uid() = user_id);
+
+-- ---------------------------------------------------------------------------
+-- Indexes
+-- ---------------------------------------------------------------------------
+-- Every child table is read filtered by client_id.
+
+create index if not exists time_entries_client_id_idx on public.time_entries (client_id);
+create index if not exists invoices_client_id_idx on public.invoices (client_id);
+create index if not exists contracts_client_id_idx on public.contracts (client_id);
+
+-- ---------------------------------------------------------------------------
+-- Public contract signing
+-- ---------------------------------------------------------------------------
+-- The /sign/[token] page is visited by the *client*, who has no account and is
+-- therefore an anonymous Supabase user. RLS blocks anonymous access to
+-- `contracts` entirely, so these two functions are the only way in: they run as
+-- SECURITY DEFINER (with the owner's rights), take the token as their sole
+-- credential, and expose only the columns needed to display and sign.
+--
+-- `set search_path = public` is required, not cosmetic. A SECURITY DEFINER
+-- function without it resolves object names against the caller's search_path,
+-- which is a privilege-escalation route.
+--
+-- NOTE: these two functions already exist in the live project and are not
+-- reproduced here, because their exact bodies were not captured. To record them,
+-- run this and paste the output in place of this comment block:
+--
+--   select pg_get_functiondef(p.oid)
+--   from pg_proc p
+--   join pg_namespace n on n.oid = p.pronamespace
+--   where n.nspname = 'public'
+--     and p.proname in ('get_contract_by_token', 'sign_contract');
+--
+-- Until then, this file cannot rebuild a project from scratch on its own.
+
