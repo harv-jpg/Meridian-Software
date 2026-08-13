@@ -2,7 +2,99 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --paper: #f6f4ef;
+  --paper-dim: #ece7dc;
+  --ink: #10192e;
+}
+
 body {
-  background: #f6f4ef;
-  color: #10192e;
+  background: var(--paper);
+  color: var(--ink);
+  /* A faint warm grain so large empty areas read as paper rather than as a
+     blank void. Two offset radial gradients, no image request. */
+  background-image:
+    radial-gradient(circle at 12% 18%, rgba(31, 138, 112, 0.05), transparent 42%),
+    radial-gradient(circle at 88% 8%, rgba(201, 162, 39, 0.05), transparent 38%);
+  background-attachment: fixed;
+}
+
+@layer base {
+  /* One consistent focus ring instead of the browser default, which the
+     previous styling suppressed in places and left inconsistent in others. */
+  :focus-visible {
+    outline: 2px solid theme("colors.teal");
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  input,
+  textarea,
+  select {
+    background-color: #fff;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: theme("colors.slate.400");
+  }
+}
+
+@layer components {
+  /* Shared field styling — previously repeated as a long class string on
+     every input, which is why they had drifted apart visually. */
+  .field {
+    @apply w-full rounded-md border border-ink/15 bg-white px-3 py-2 text-sm
+           transition-colors placeholder:text-slate-400
+           hover:border-ink/25 focus:border-teal focus:outline-none
+           focus:ring-2 focus:ring-teal/20;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md bg-ink
+           px-4 py-2 text-sm font-semibold text-paper transition
+           hover:bg-ink/90 active:scale-[0.98] disabled:opacity-60
+           disabled:active:scale-100;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md border
+           border-ink/15 bg-white px-3 py-2 text-sm font-medium text-slate-600
+           transition hover:border-ink/30 hover:text-ink active:scale-[0.98];
+  }
+
+  .card {
+    @apply rounded-lg border border-ink/10 bg-white shadow-card;
+  }
+
+  .label {
+    @apply block text-xs font-medium uppercase tracking-wide text-slate-500;
+  }
+}
+
+/* The drawer and board scroll independently; keep their scrollbars quiet. */
+.scroll-slim {
+  scrollbar-width: thin;
+  scrollbar-color: theme("colors.slate.300") transparent;
+}
+.scroll-slim::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-slim::-webkit-scrollbar-thumb {
+  background-color: theme("colors.slate.300");
+  border-radius: 999px;
+}
+.scroll-slim::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
