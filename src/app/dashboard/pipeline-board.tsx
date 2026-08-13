@@ -3,20 +3,9 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { ClientRecord, Stage } from "@/lib/types";
-import ClientDetailModal from "./client-detail-modal";
-
-const STAGES: { key: Stage; label: string }[] = [
-  { key: "lead", label: "Lead" },
-  { key: "proposal_sent", label: "Proposal Sent" },
-  { key: "negotiating", label: "Negotiating" },
-  { key: "won", label: "Won" },
-  { key: "lost", label: "Lost" },
-];
-
-function formatGBP(pence: number | null) {
-  if (pence === null) return "—";
-  return `£${(pence / 100).toFixed(2)}`;
-}
+import { STAGES } from "@/lib/stages";
+import { formatGBP, formatGBPShort } from "@/lib/format";
+import ClientDetailDrawer from "./client-detail-drawer";
 
 export default function PipelineBoard({
   clients,
@@ -65,6 +54,7 @@ export default function PipelineBoard({
   }
 
   async function moveToStage(clientId: string, newStage: Stage) {
+    const previous = clients;
     setClients((prev) =>
       prev.map((c) => (c.id === clientId ? { ...c, stage: newStage } : c))
     );
@@ -72,7 +62,10 @@ export default function PipelineBoard({
       .from("clients")
       .update({ stage: newStage })
       .eq("id", clientId);
-    if (error) alert("Could not update stage — please refresh and try again.");
+    if (error) {
+      setClients(previous);
+      alert("Could not update stage — please try again.");
+    }
   }
 
   async function handleDelete(clientId: string) {
@@ -96,133 +89,87 @@ export default function PipelineBoard({
     );
   }
 
-  function handleDragStart(clientId: string) {
-    setDraggingId(clientId);
-  }
-
-  function handleDragEnd() {
-    setDraggingId(null);
-    setDragOverStage(null);
-  }
-
-  function handleDragOverColumn(e: React.DragEvent, stage: Stage) {
-    e.preventDefault();
-    setDragOverStage(stage);
-  }
-
-  function handleDropOnColumn(e: React.DragEvent, stage: Stage) {
-    e.preventDefault();
-    setDragOverStage(null);
-    if (draggingId) {
-      moveToStage(draggingId, stage);
-    }
-    setDraggingId(null);
+  function handleStageChange(stage: Stage) {
+    if (!selectedId) return;
+    setClients((prev) =>
+      prev.map((c) => (c.id === selectedId ? { ...c, stage } : c))
+    );
   }
 
   return (
     <div>
       <form
         onSubmit={handleAdd}
-        className="mb-8 flex flex-wrap items-end gap-3 rounded border border-ink/10 bg-white p-4"
+        className="card mb-8 flex flex-wrap items-end gap-3 p-4"
       >
-        <div>
-          <label className="block text-xs font-medium uppercase tracking-wide text-slate-500">
+        <div className="min-w-[200px] flex-1">
+          <label className="label" htmlFor="new-name">
             Client name
           </label>
           <input
+            id="new-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
-            className="mt-1 rounded border border-ink/15 px-3 py-2 text-sm"
+            className="field mt-1"
             placeholder="e.g. Marlowe Studio"
           />
         </div>
         <div>
-          <label className="block text-xs font-medium uppercase tracking-wide text-slate-500">
+          <label className="label" htmlFor="new-value">
             Est. value (£)
           </label>
           <input
+            id="new-value"
             value={value}
             onChange={(e) => setValue(e.target.value)}
             type="number"
             step="0.01"
             min="0"
-            className="mt-1 w-32 rounded border border-ink/15 px-3 py-2 text-sm"
+            className="field mt-1 w-32"
             placeholder="1500"
           />
         </div>
-        <button
-          type="submit"
-          disabled={adding}
-          className="rounded bg-ink px-4 py-2 text-sm font-semibold text-paper disabled:opacity-60"
-        >
+        <button type="submit" disabled={adding} className="btn-primary">
           {adding ? "Adding…" : "Add lead"}
         </button>
         {error && <p className="w-full text-sm text-red-600">{error}</p>}
       </form>
 
-      <div className="grid gap-4 md:grid-cols-5">
-        {STAGES.map((stage) => (
-          <div
-            key={stage.key}
-            onDragOver={(e) => handleDragOverColumn(e, stage.key)}
-            onDragLeave={() => setDragOverStage((prev) => (prev === stage.key ? null : prev))}
-            onDrop={(e) => handleDropOnColumn(e, stage.key)}
-            className={`rounded-md p-2 transition ${
-              dragOverStage === stage.key ? "bg-teal/10 ring-2 ring-teal/40" : ""
-            }`}
-          >
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              {stage.label} · {clients.filter((c) => c.stage === stage.key).length}
-            </h3>
-            <div className="space-y-2 min-h-[40px]">
-              {clients
-                .filter((c) => c.stage === stage.key)
-                .map((c) => (
-                  <div
-                    key={c.id}
-                    draggable
-                    onDragStart={() => handleDragStart(c.id)}
-                    onDragEnd={handleDragEnd}
-                    onClick={() => setSelectedId(c.id)}
-                    className={`cursor-grab rounded border border-ink/10 bg-white p-3 text-sm transition active:cursor-grabbing hover:border-teal/50 hover:shadow-sm ${
-                      draggingId === c.id ? "opacity-40" : ""
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="font-medium">{c.name}</div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(c.id);
-                        }}
-                        title="Delete client"
-                        className="text-xs text-slate-400 hover:text-red-600"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                    <div className="mt-1 font-mono text-xs text-slate-500">
-                      {formatGBP(c.value_pence)}
-                    </div>
-                  </div>
-                ))}
-              {clients.filter((c) => c.stage === stage.key).length === 0 && (
-                <p className="text-xs text-slate-400">Drop here</p>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
+      <div className="grid gap-3 md:grid-cols-5">
+        {STAGES.map((stage) => {
+          const inStage = clients.filter((c) => c.stage === stage.key);
+          const stageValue = inStage.reduce(
+            (sum, c) => sum + (c.value_pence ?? 0),
+            0
+          );
+          const isDropTarget = dragOverStage === stage.key;
 
-      {selectedClient && (
-        <ClientDetailModal
-          client={selectedClient}
-          userId={userId}
-          onClose={() => setSelectedId(null)}
-          onNotesSaved={handleNotesSaved}
-        />
-      )}
-    </div>
-  );
-}
+          return (
+            <div
+              key={stage.key}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOverStage(stage.key);
+              }}
+              onDragLeave={() =>
+                setDragOverStage((prev) => (prev === stage.key ? null : prev))
+              }
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOverStage(null);
+                if (draggingId) moveToStage(draggingId, stage.key);
+                setDraggingId(null);
+              }}
+              className={`rounded-lg p-2 transition ${
+                isDropTarget ? stage.dropZone : "ring-2 ring-transparent"
+              }`}
+            >
+              <div className="mb-2.5 flex items-center gap-2 px-1">
+                <span className={`h-2 w-2 shrink-0 rounded-full ${stage.dot}`} />
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  {stage.label}
+                </h3>
+                <span className="ml-auto font-mono text-xs text-slate-400">
+                  {inStage.length}
+                </
