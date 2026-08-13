@@ -18,11 +18,13 @@ export default function DashboardClient({
 
   return (
     <div>
-      <div className="mb-4 flex justify-end">
-        <button
-          onClick={() => setShowImport(true)}
-          className="rounded border border-ink/20 px-4 py-2 text-sm font-medium"
-        >
+      <div className="mb-5 flex items-center justify-between gap-4">
+        <p className="text-sm text-slate-500">
+          {clients.length === 0
+            ? "No clients yet — add your first lead below."
+            : `${clients.length} client${clients.length === 1 ? "" : "s"} tracked`}
+        </p>
+        <button onClick={() => setShowImport(true)} className="btn-ghost">
           Import from CSV
         </button>
       </div>
