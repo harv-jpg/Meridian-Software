@@ -1,4 +1,4 @@
-# Meridian — app starter
+# Setu — app starter
 
 This is the first real piece of the Meridian product: a working Next.js app
 with Supabase authentication (sign up, log in, log out, a protected
