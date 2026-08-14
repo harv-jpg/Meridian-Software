@@ -40,3 +40,30 @@ export function parsePricePence(raw: string): number | null {
   if (!Number.isFinite(n) || n < 0) return null;
   return Math.round(n * 100);
 }
+
+/**
+ * VAT is derived from the net total and the rate rather than stored, so a
+ * third column cannot fall out of step with the other two. Rates are in basis
+ * points: 2000 means 20%.
+ */
+export function vatPence(netPence: number, vatRateBp: number): number {
+  if (vatRateBp <= 0) return 0;
+  return Math.round((netPence * vatRateBp) / 10000);
+}
+
+export function grossPence(netPence: number, vatRateBp: number): number {
+  return netPence + vatPence(netPence, vatRateBp);
+}
+
+/** 2000 -> "20%", 1750 -> "17.5%" */
+export function formatVatRate(vatRateBp: number): string {
+  const pct = vatRateBp / 100;
+  return `${Number.isInteger(pct) ? pct : parseFloat(pct.toFixed(2))}%`;
+}
+
+/** "20" -> 2000, "17.5" -> 1750. Null for anything not zero or more. */
+export function parseVatRate(raw: string): number | null {
+  const n = parseFloat(raw);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * 100);
+}

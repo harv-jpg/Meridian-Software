@@ -9,7 +9,8 @@ Tailwind.
 
 ## What's working
 
-**Accounts** — email/password sign up and login via Supabase Auth. `/dashboard`
+**Accounts** — email/password sign up, login and password reset via Supabase
+Auth. `/dashboard`
 is protected; signed-out visitors are redirected to `/login`. Sessions are kept
 alive by middleware, so login survives a page reload.
 
@@ -40,9 +41,9 @@ total paid. Below that, four tabs:
 - **Time** — a live timer, or log minutes by hand; entries are marked `billed`
   once invoiced
 - **Invoices** — generate from unbilled time at an hourly rate, or as a fixed
-  fee; each gets a per-user invoice number, an optional due date and line
-  items you can add to while it is still a draft. Status moves draft → sent →
-  paid, and overdue ones are flagged in red
+  fee; each gets a per-user invoice number, an optional due date, VAT at your
+  configured rate and line items you can add to while it is still a draft.
+  Status moves draft → sent → paid, and overdue ones are flagged in red
 - **Contracts** — write from a template, then share a signing link
 
 **Contract signing** — `/sign/[token]` is a public page. The client opens the
@@ -62,6 +63,16 @@ link.
 emailed to the client straight from the drawer, with the share link embedded
 and replies going to your own address. Without one the buttons say so and you
 copy the link instead — nothing else changes.
+
+**Business details** — your name, address, VAT number and rate, how to pay you
+and an invoice footer, set once at `/dashboard/settings` and applied to every
+invoice. Without them an invoice states an amount; with them it is a document a
+bookkeeper can file.
+
+**Archiving** — finishing with a client archives them rather than deleting.
+They leave the board and their time, invoices and contracts are kept. Permanent
+deletion stays available only while a client has none of those attached, since
+the cascade would otherwise destroy records you are expected to keep.
 
 **CSV import** — bring clients in from a spreadsheet or another CRM, mapping
 your columns onto name, email, phone, company, value, stage and notes. The
@@ -121,6 +132,8 @@ src/
   app/
     page.tsx                 landing
     login/  signup/          auth screens
+    forgot-password/         request a reset link
+    reset-password/          choose a new password
     auth/callback/           Supabase auth redirect handler
     api/send/                emails an invoice or contract to the client
     sign/[token]/            public contract signing
@@ -133,6 +146,7 @@ src/
       client-detail-drawer.tsx  slide-over panel; loads all client records once
       details-tab.tsx  time-tab.tsx  invoices-tab.tsx  contracts-tab.tsx
       needs-attention.tsx      overdue invoices + due follow-ups
+      settings/                your business details, VAT and payment info
       import-csv-modal.tsx
 supabase/
   schema.sql                 full schema; run this on a new project
@@ -144,6 +158,11 @@ parallel load and passes them down, so switching sections is instant and the
 figures stay consistent between them.
 
 ## Conventions worth knowing
+
+**VAT is derived, never stored.** `invoices.amount_pence` is the net total of
+the line items and `vat_rate_bp` the rate in basis points (2000 = 20%). Tax and
+gross are computed from those two by `src/lib/invoice.ts`, so a third column
+cannot fall out of step with the other two.
 
 **Money is stored as integer pence.** Never floats — `value_pence`,
 `amount_pence`. Format it with the helpers in `src/lib/format.ts` rather than
@@ -163,6 +182,8 @@ policies first.
 
 ## Known gaps
 
+- **No export.** Your records exist only inside Supabase; an accountant will
+  want a CSV, and so will you at tax time.
 - **No reminders.** Overdue invoices and due follow-ups are surfaced when you
   open the app, but nothing chases them on your behalf — there is no scheduler
   and nothing runs in the background.

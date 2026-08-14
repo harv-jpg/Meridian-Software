@@ -10,6 +10,7 @@ type Draft = {
   email: string;
   phone: string;
   company: string;
+  address: string;
   notes: string;
   follow_up_on: string;
 };
@@ -33,6 +34,7 @@ function draftFrom(client: ClientRecord): Draft {
     email: client.email ?? "",
     phone: client.phone ?? "",
     company: client.company ?? "",
+    address: client.address ?? "",
     notes: client.notes ?? "",
     follow_up_on: client.follow_up_on ?? "",
   };
@@ -57,6 +59,7 @@ export default function DetailsTab({
     draft.email !== saved.email ||
     draft.phone !== saved.phone ||
     draft.company !== saved.company ||
+    draft.address !== saved.address ||
     draft.notes !== saved.notes ||
     draft.follow_up_on !== saved.follow_up_on;
 
@@ -84,6 +87,7 @@ export default function DetailsTab({
       email: draft.email.trim() || null,
       phone: draft.phone.trim() || null,
       company: draft.company.trim() || null,
+      address: draft.address.trim() || null,
       notes: draft.notes,
       follow_up_on: draft.follow_up_on || null,
     };
@@ -151,6 +155,20 @@ export default function DetailsTab({
               placeholder="07700 900000"
             />
           </div>
+        </div>
+
+        <div className="mt-3">
+          <label className="label" htmlFor="client-address">
+            Address
+          </label>
+          <textarea
+            id="client-address"
+            value={draft.address}
+            onChange={(e) => set("address", e.target.value)}
+            rows={3}
+            placeholder={"Their billing address — appears on invoices"}
+            className="field mt-1 resize-y"
+          />
         </div>
 
         {/* Saved values become actionable links — the point of holding a

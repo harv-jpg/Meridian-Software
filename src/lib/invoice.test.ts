@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatVatRate,
+  grossPence,
+  parseVatRate,
+  vatPence,
   formatQuantity,
   itemsTotalPence,
   lineTotalPence,
@@ -97,5 +101,53 @@ describe("parsePricePence", () => {
   it("rejects nonsense", () => {
     expect(parsePricePence("")).toBeNull();
     expect(parsePricePence("free")).toBeNull();
+  });
+});
+
+describe("vatPence", () => {
+  it("applies the rate in basis points", () => {
+    expect(vatPence(10000, 2000)).toBe(2000); // £100 @ 20% = £20
+    expect(vatPence(10000, 1750)).toBe(1750); // £100 @ 17.5% = £17.50
+  });
+
+  it("is zero when no rate is set", () => {
+    expect(vatPence(10000, 0)).toBe(0);
+  });
+
+  it("rounds to whole pence", () => {
+    // £18.75 @ 20% = £3.75 exactly; £18.77 @ 20% = 375.4p -> 375p
+    expect(vatPence(1875, 2000)).toBe(375);
+    expect(vatPence(1877, 2000)).toBe(375);
+  });
+});
+
+describe("grossPence", () => {
+  it("adds VAT to the net", () => {
+    expect(grossPence(10000, 2000)).toBe(12000);
+  });
+
+  it("equals the net when unregistered", () => {
+    expect(grossPence(187500, 0)).toBe(187500);
+  });
+});
+
+describe("formatVatRate", () => {
+  it("renders whole and fractional rates", () => {
+    expect(formatVatRate(2000)).toBe("20%");
+    expect(formatVatRate(1750)).toBe("17.5%");
+    expect(formatVatRate(0)).toBe("0%");
+  });
+});
+
+describe("parseVatRate", () => {
+  it("converts percent to basis points", () => {
+    expect(parseVatRate("20")).toBe(2000);
+    expect(parseVatRate("17.5")).toBe(1750);
+    expect(parseVatRate("0")).toBe(0);
+  });
+
+  it("rejects negatives and nonsense", () => {
+    expect(parseVatRate("-1")).toBeNull();
+    expect(parseVatRate("")).toBeNull();
   });
 });

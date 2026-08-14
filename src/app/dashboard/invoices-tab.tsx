@@ -6,10 +6,13 @@ import { isOverdue } from "@/lib/types";
 import type { Invoice, InvoiceItem, InvoiceStatus, TimeEntry } from "@/lib/types";
 import {
   formatQuantity,
+  formatVatRate,
+  grossPence,
   itemsTotalPence,
   lineTotalPence,
   parsePricePence,
   parseQuantity,
+  vatPence,
 } from "@/lib/invoice";
 import { formatDate, formatGBP, formatHours } from "@/lib/format";
 import { sendByEmail } from "@/lib/send";
@@ -42,6 +45,7 @@ export default function InvoicesTab({
   setItems,
   clientEmail,
   clientName,
+  defaultVatRateBp,
   defaultFixedFeePence,
 }: {
   clientId: string;
@@ -54,6 +58,8 @@ export default function InvoicesTab({
   setItems: React.Dispatch<React.SetStateAction<InvoiceItem[]>>;
   clientEmail: string | null;
   clientName: string;
+  /** From your business details; 0 when not VAT registered. */
+  defaultVatRateBp: number;
   defaultFixedFeePence: number | null;
 }) {
   const [rate, setRate] = useState("50");
@@ -113,6 +119,7 @@ export default function InvoicesTab({
         client_id: clientId,
         user_id: userId,
         amount_pence: previewPence,
+        vat_rate_bp: defaultVatRateBp,
         basis,
         status: "draft",
         due_date: dueDate || null,
@@ -275,7 +282,7 @@ export default function InvoicesTab({
     // Sending leaves the app and cannot be taken back, so name the recipient
     // and make the user agree to it first.
     const ok = window.confirm(
-      `Email invoice #${invoice.invoice_number} for ${formatGBP(invoice.amount_pence)} to ${clientName} at ${clientEmail}?`
+      `Email invoice #${invoice.invoice_number} for ${formatGBP(grossPence(invoice.amount_pence, invoice.vat_rate_bp))} to ${clientName} at ${clientEmail}?`
     );
     if (!ok) return;
 
@@ -367,10 +374,18 @@ export default function InvoicesTab({
 
           <div className="mt-4 flex items-center justify-between border-t border-ink/10 pt-4">
             <div>
-              <span className="label">Invoice total</span>
+              <span className="label">
+                {defaultVatRateBp > 0 ? "Total inc. VAT" : "Invoice total"}
+              </span>
               <p className="font-mono text-xl font-semibold">
-                {formatGBP(previewPence)}
+                {formatGBP(grossPence(previewPence, defaultVatRateBp))}
               </p>
+              {defaultVatRateBp > 0 && (
+                <p className="mt-0.5 text-xs text-slate-400">
+                  {formatGBP(previewPence)} + {formatVatRate(defaultVatRateBp)}{" "}
+                  VAT
+                </p>
+              )}
             </div>
             <button
               onClick={generateInvoice}
@@ -404,11 +419,18 @@ export default function InvoicesTab({
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-mono text-base font-semibold">
-                      {formatGBP(inv.amount_pence)}
+                      {formatGBP(grossPence(inv.amount_pence, inv.vat_rate_bp))}
                       <span className="ml-2 text-xs font-normal text-slate-400">
                         #{inv.invoice_number}
                       </span>
                     </p>
+                    {inv.vat_rate_bp > 0 && (
+                      <p className="text-xs text-slate-400">
+                        {formatGBP(inv.amount_pence)} +{" "}
+                        {formatGBP(vatPence(inv.amount_pence, inv.vat_rate_bp))}{" "}
+                        VAT at {formatVatRate(inv.vat_rate_bp)}
+                      </p>
+                    )}
                     <p className="mt-0.5 text-xs text-slate-400">
                       {inv.basis === "time" ? "Time-based" : "Fixed fee"} ·{" "}
                       {formatDate(inv.created_at)}

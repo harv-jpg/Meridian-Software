@@ -12,8 +12,11 @@ export interface ClientRecord {
   stage: Stage;
   value_pence: number | null;
   notes: string | null;
+  address: string | null;
   /** ISO date (no time). The day you next intend to chase this deal. */
   follow_up_on: string | null;
+  /** Set once archived; archived clients are hidden from the board. */
+  archived_at: string | null;
   created_at: string;
 }
 
@@ -34,6 +37,8 @@ export interface Invoice {
   amount_pence: number;
   basis: InvoiceBasis;
   status: InvoiceStatus;
+  /** VAT rate in basis points: 2000 means 20%. Zero when not registered. */
+  vat_rate_bp: number;
   /** ISO date (no time). Null means no due date was set. */
   due_date: string | null;
   /** Unguessable value behind the public /invoice/[token] URL. */
@@ -50,6 +55,16 @@ export interface InvoiceItem {
   unit_price_pence: number;
   position: number;
   created_at: string;
+}
+
+export interface BusinessProfile {
+  user_id: string;
+  business_name: string | null;
+  address: string | null;
+  vat_number: string | null;
+  payment_details: string | null;
+  invoice_footer: string | null;
+  default_vat_rate_bp: number;
 }
 
 export interface Contract {

@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "./logout-button";
 import DashboardClient from "./dashboard-client";
@@ -16,9 +17,18 @@ export default async function DashboardPage() {
 
   // Invoices are loaded here as well as in the drawer, because the attention
   // strip needs to know what is overdue before any client is opened.
-  const [{ data: clients }, { data: invoices }] = await Promise.all([
-    supabase.from("clients").select("*").order("created_at", { ascending: false }),
+  const [{ data: clients }, { data: invoices }, { data: profile }] = await Promise.all([
+    supabase
+      .from("clients")
+      .select("*")
+      .is("archived_at", null)
+      .order("created_at", { ascending: false }),
     supabase.from("invoices").select("*").order("due_date", { ascending: true }),
+    supabase
+      .from("business_profiles")
+      .select("default_vat_rate_bp")
+      .eq("user_id", user.id)
+      .maybeSingle(),
   ]);
 
   return (
@@ -36,7 +46,12 @@ export default async function DashboardPage() {
               <p className="mt-1 text-xs text-slate-400">{user.email}</p>
             </div>
           </div>
-          <LogoutButton />
+          <div className="flex items-center gap-2">
+            <Link href="/dashboard/settings" className="btn-ghost">
+              Business details
+            </Link>
+            <LogoutButton />
+          </div>
         </div>
       </header>
 
@@ -44,6 +59,7 @@ export default async function DashboardPage() {
         <DashboardClient
           initialClients={(clients ?? []) as ClientRecord[]}
           initialInvoices={(invoices ?? []) as Invoice[]}
+          defaultVatRateBp={profile?.default_vat_rate_bp ?? 0}
           userId={user.id}
         />
       </div>

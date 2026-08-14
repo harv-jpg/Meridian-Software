@@ -15,6 +15,7 @@ export default function PipelineBoard({
   onlyFollowUps = false,
   selectedId,
   setSelectedId,
+  defaultVatRateBp,
 }: {
   clients: ClientRecord[];
   setClients: React.Dispatch<React.SetStateAction<ClientRecord[]>>;
@@ -24,6 +25,8 @@ export default function PipelineBoard({
   /** Controlled by the dashboard so the attention strip can open a client. */
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
+  /** From your business details; applied to invoices raised in the drawer. */
+  defaultVatRateBp: number;
 }) {
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
@@ -76,17 +79,28 @@ export default function PipelineBoard({
     }
   }
 
-  async function handleDelete(clientId: string) {
-    const confirmed = window.confirm("Delete this client? This can't be undone.");
+  // Deleting cascaded to time entries, invoices and contracts — records you
+  // are expected to keep for years. Archiving is the ordinary action now;
+  // permanent deletion lives in the drawer and only for clients with nothing
+  // of record value attached.
+  async function handleArchive(clientId: string) {
+    const client = clients.find((c) => c.id === clientId);
+    const confirmed = window.confirm(
+      `Archive ${client?.name ?? "this client"}? They leave the board but their ` +
+        "time, invoices and contracts are kept."
+    );
     if (!confirmed) return;
 
     const previous = clients;
     setClients((prev) => prev.filter((c) => c.id !== clientId));
 
-    const { error } = await supabase.from("clients").delete().eq("id", clientId);
+    const { error } = await supabase
+      .from("clients")
+      .update({ archived_at: new Date().toISOString() })
+      .eq("id", clientId);
     if (error) {
       setClients(previous);
-      alert("Could not delete — please try again.");
+      alert("Could not archive — please try again.");
     }
   }
 
@@ -240,14 +254,15 @@ export default function PipelineBoard({
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDelete(c.id);
+                          handleArchive(c.id);
                         }}
-                        aria-label={`Delete ${c.name}`}
+                        title="Archive"
+                        aria-label={`Archive ${c.name}`}
                         className="-mr-1 -mt-1 shrink-0 rounded p-1 text-xs text-slate-300
-                                   opacity-0 transition hover:bg-red-50 hover:text-red-600
+                                   opacity-0 transition hover:bg-ink/5 hover:text-ink
                                    focus-visible:opacity-100 group-hover:opacity-100"
                       >
-                        ✕
+                        ⊘
                       </button>
                     </div>
 
@@ -312,6 +327,11 @@ export default function PipelineBoard({
           onClose={() => setSelectedId(null)}
           onClientSaved={handleClientSaved}
           onStageChange={handleStageChange}
+          onDeleted={() => {
+            setClients((prev) => prev.filter((c) => c.id !== selectedId));
+            setSelectedId(null);
+          }}
+          defaultVatRateBp={defaultVatRateBp}
         />
       )}
     </div>

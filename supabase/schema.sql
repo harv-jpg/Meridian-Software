@@ -19,10 +19,12 @@ create table if not exists public.clients (
   email text,
   phone text,
   company text,
+  address text,
   stage text not null default 'lead' check (stage in ('lead', 'proposal_sent', 'negotiating', 'won', 'lost')),
   value_pence integer, -- store money as integer pence to avoid float rounding issues
   notes text,
   follow_up_on date, -- the day you next intend to chase this deal
+  archived_at timestamptz, -- set when archived; archived clients leave the board
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -39,6 +41,9 @@ create table if not exists public.invoices (
   amount_pence integer not null,
   basis text not null check (basis in ('time', 'fixed')),
   status text not null default 'draft' check (status in ('draft', 'sent', 'paid')),
+  -- VAT rate in basis points: 2000 means 20%. VAT itself is derived from this
+  -- and amount_pence rather than stored, so no third column can drift.
+  vat_rate_bp integer not null default 0 check (vat_rate_bp >= 0),
   due_date date,
   share_token uuid not null unique default gen_random_uuid(),
   created_at timestamptz not null default now()
@@ -88,6 +93,19 @@ create table if not exists public.invoice_items (
   created_at timestamptz not null default now()
 );
 
+-- Your own business details — one row per user, keyed by user_id so it cannot
+-- drift into two half-filled rows. These appear on every invoice.
+create table if not exists public.business_profiles (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  business_name text,
+  address text,
+  vat_number text,
+  payment_details text,
+  invoice_footer text,
+  default_vat_rate_bp integer not null default 0 check (default_vat_rate_bp >= 0),
+  updated_at timestamptz not null default now()
+);
+
 -- ---------------------------------------------------------------------------
 -- Row Level Security
 -- ---------------------------------------------------------------------------
@@ -100,6 +118,7 @@ alter table public.time_entries enable row level security;
 alter table public.invoices enable row level security;
 alter table public.contracts enable row level security;
 alter table public.invoice_items enable row level security;
+alter table public.business_profiles enable row level security;
 
 -- clients
 drop policy if exists "Users can view their own clients" on public.clients;
@@ -168,6 +187,23 @@ create policy "Users can delete their own invoices"
   on public.invoices for delete
   using (auth.uid() = user_id);
 
+-- business_profiles (no delete policy: there is nothing to gain by removing
+-- your own settings row, and keeping it means upsert always has a target)
+drop policy if exists "Users can view their own business profile" on public.business_profiles;
+create policy "Users can view their own business profile"
+  on public.business_profiles for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own business profile" on public.business_profiles;
+create policy "Users can insert their own business profile"
+  on public.business_profiles for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own business profile" on public.business_profiles;
+create policy "Users can update their own business profile"
+  on public.business_profiles for update
+  using (auth.uid() = user_id);
+
 -- invoice_items
 drop policy if exists "Users can view their own invoice items" on public.invoice_items;
 create policy "Users can view their own invoice items"
@@ -219,6 +255,34 @@ create index if not exists time_entries_client_id_idx on public.time_entries (cl
 create index if not exists invoices_client_id_idx on public.invoices (client_id);
 create index if not exists contracts_client_id_idx on public.contracts (client_id);
 create index if not exists invoice_items_invoice_id_idx on public.invoice_items (invoice_id, position);
+
+-- The board reads only unarchived clients.
+create index if not exists clients_active_idx
+  on public.clients (user_id)
+  where archived_at is null;
+
+-- ---------------------------------------------------------------------------
+-- updated_at
+-- ---------------------------------------------------------------------------
+create or replace function public.touch_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists clients_touch_updated_at on public.clients;
+create trigger clients_touch_updated_at
+  before update on public.clients
+  for each row execute function public.touch_updated_at();
+
+drop trigger if exists business_profiles_touch_updated_at on public.business_profiles;
+create trigger business_profiles_touch_updated_at
+  before update on public.business_profiles
+  for each row execute function public.touch_updated_at();
 
 -- The board filters on this across every client on each render.
 create index if not exists clients_follow_up_on_idx
@@ -272,12 +336,19 @@ create or replace function public.get_invoice_by_token(p_token uuid)
 returns table (
   invoice_number integer,
   amount_pence integer,
+  vat_rate_bp integer,
   basis text,
   status text,
   due_date date,
   created_at timestamptz,
   client_name text,
-  issuer_email text
+  client_address text,
+  issuer_email text,
+  business_name text,
+  business_address text,
+  vat_number text,
+  payment_details text,
+  invoice_footer text
 )
 language sql
 stable
@@ -286,15 +357,23 @@ set search_path = public
 as $$
   select i.invoice_number,
          i.amount_pence,
+         i.vat_rate_bp,
          i.basis,
          i.status,
          i.due_date,
          i.created_at,
          c.name,
-         u.email::text
+         c.address,
+         u.email::text,
+         b.business_name,
+         b.address,
+         b.vat_number,
+         b.payment_details,
+         b.invoice_footer
     from public.invoices i
     join public.clients c on c.id = i.client_id
     join auth.users u on u.id = i.user_id
+    left join public.business_profiles b on b.user_id = i.user_id
    where i.share_token = p_token
      and i.status <> 'draft';
 $$;

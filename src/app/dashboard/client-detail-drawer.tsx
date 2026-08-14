@@ -12,6 +12,7 @@ import type {
 } from "@/lib/types";
 import { STAGES } from "@/lib/stages";
 import { formatDuration, formatGBP } from "@/lib/format";
+import { grossPence } from "@/lib/invoice";
 import DetailsTab from "./details-tab";
 import TimeTab from "./time-tab";
 import InvoicesTab from "./invoices-tab";
@@ -25,12 +26,17 @@ export default function ClientDetailDrawer({
   onClose,
   onClientSaved,
   onStageChange,
+  onDeleted,
+  defaultVatRateBp,
 }: {
   client: ClientRecord;
   userId: string;
   onClose: () => void;
   onClientSaved: (fields: Partial<ClientRecord>) => void;
   onStageChange: (stage: Stage) => void;
+  onDeleted: () => void;
+  /** From your business details; applied to invoices raised here. */
+  defaultVatRateBp: number;
 }) {
   const [tab, setTab] = useState<Tab>("details");
   const [loading, setLoading] = useState(true);
@@ -161,15 +167,41 @@ export default function ClientDetailDrawer({
     }
   }
 
+  // Archiving is the ordinary way to finish with a client. Permanent deletion
+  // stays available only while there is nothing of record value to destroy —
+  // once time, an invoice or a contract exists, the cascade would take records
+  // you are expected to keep, and the button disappears.
+  const hasRecords =
+    timeEntries.length > 0 || invoices.length > 0 || contracts.length > 0;
+
+  async function deletePermanently() {
+    const ok = window.confirm(
+      `Delete ${client.name} permanently? There is nothing billed against them, ` +
+        "so nothing else is lost. This cannot be undone."
+    );
+    if (!ok) return;
+
+    const { error } = await supabase.from("clients").delete().eq("id", client.id);
+    if (error) {
+      alert("Could not delete — please try again.");
+      return;
+    }
+    onDeleted();
+  }
+
   const totals = useMemo(() => {
     const trackedMinutes = timeEntries.reduce((sum, e) => sum + e.minutes, 0);
     const unbilledMinutes = timeEntries
       .filter((e) => e.invoice_id === null)
       .reduce((sum, e) => sum + e.minutes, 0);
-    const invoicedPence = invoices.reduce((sum, i) => sum + i.amount_pence, 0);
+    // Totals are gross, matching what the client is actually asked to pay.
+    const invoicedPence = invoices.reduce(
+      (sum, i) => sum + grossPence(i.amount_pence, i.vat_rate_bp),
+      0
+    );
     const paidPence = invoices
       .filter((i) => i.status === "paid")
-      .reduce((sum, i) => sum + i.amount_pence, 0);
+      .reduce((sum, i) => sum + grossPence(i.amount_pence, i.vat_rate_bp), 0);
     return { trackedMinutes, unbilledMinutes, invoicedPence, paidPence };
   }, [timeEntries, invoices]);
 
@@ -343,6 +375,7 @@ export default function ClientDetailDrawer({
                   setItems={setInvoiceItems}
                   clientEmail={client.email}
                   clientName={client.name}
+                  defaultVatRateBp={defaultVatRateBp}
                   defaultFixedFeePence={client.value_pence}
                 />
               )}
@@ -359,6 +392,25 @@ export default function ClientDetailDrawer({
             </div>
           )}
         </div>
+
+        {!loading && !loadError && (
+          <footer className="border-t border-ink/10 px-6 py-4">
+            {hasRecords ? (
+              <p className="text-xs text-slate-400">
+                This client has billed work against them, so they can only be
+                archived — deleting would take their time, invoices and
+                contracts with them.
+              </p>
+            ) : (
+              <button
+                onClick={deletePermanently}
+                className="text-xs font-medium text-slate-400 transition hover:text-red-600"
+              >
+                Delete permanently
+              </button>
+            )}
+          </footer>
+        )}
       </div>
     </div>
   );

@@ -11,10 +11,12 @@ import type { ClientRecord, Invoice } from "@/lib/types";
 export default function DashboardClient({
   initialClients,
   initialInvoices,
+  defaultVatRateBp,
   userId,
 }: {
   initialClients: ClientRecord[];
   initialInvoices: Invoice[];
+  defaultVatRateBp: number;
   userId: string;
 }) {
   const [clients, setClients] = useState<ClientRecord[]>(initialClients);
@@ -75,6 +77,7 @@ export default function DashboardClient({
         onlyFollowUps={onlyFollowUps}
         selectedId={selectedId}
         setSelectedId={setSelectedId}
+        defaultVatRateBp={defaultVatRateBp}
       />
 
       {showImport && (

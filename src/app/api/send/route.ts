@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { formatDate, formatGBP } from "@/lib/format";
+import { grossPence } from "@/lib/invoice";
 
 // Sending goes through Resend's REST API with plain fetch rather than their
 // SDK — one less dependency for one HTTP call. Swapping provider means
@@ -139,11 +140,11 @@ export async function POST(request: Request) {
         from: from!,
         to: client.email,
         replyTo: user.email,
-        subject: `Invoice #${invoice.invoice_number} — ${formatGBP(invoice.amount_pence)}`,
+        subject: `Invoice #${invoice.invoice_number} — ${formatGBP(grossPence(invoice.amount_pence, invoice.vat_rate_bp))}`,
         html: shell(
           `<p>Hello ${client.name},</p>
            <p>Here is invoice <strong>#${invoice.invoice_number}</strong> for
-           <strong>${formatGBP(invoice.amount_pence)}</strong>.</p>
+           <strong>${formatGBP(grossPence(invoice.amount_pence, invoice.vat_rate_bp))}</strong>.</p>
            ${due}
            ${button(link, "View invoice")}`,
           `Sent by ${user.email}. Reply to this email with any questions.`

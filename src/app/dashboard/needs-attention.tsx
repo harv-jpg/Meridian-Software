@@ -3,6 +3,7 @@
 import { isFollowUpDue, isOverdue } from "@/lib/types";
 import type { ClientRecord, Invoice } from "@/lib/types";
 import { formatDate, formatGBP } from "@/lib/format";
+import { grossPence } from "@/lib/invoice";
 
 /**
  * The two questions a freelancer opens a CRM to answer — who owes me money,
@@ -31,7 +32,11 @@ export default function NeedsAttention({
 
   if (overdue.length === 0 && followUps.length === 0) return null;
 
-  const overdueTotal = overdue.reduce((sum, i) => sum + i.amount_pence, 0);
+  // Gross, matching what the client was actually asked to pay.
+  const overdueTotal = overdue.reduce(
+    (sum, i) => sum + grossPence(i.amount_pence, i.vat_rate_bp),
+    0
+  );
 
   return (
     <section
@@ -70,7 +75,7 @@ export default function NeedsAttention({
                   {formatDate(inv.due_date)}
                 </span>
                 <span className="w-20 shrink-0 text-right font-mono text-sm font-medium text-red-600">
-                  {formatGBP(inv.amount_pence)}
+                  {formatGBP(grossPence(inv.amount_pence, inv.vat_rate_bp))}
                 </span>
               </button>
             </li>
