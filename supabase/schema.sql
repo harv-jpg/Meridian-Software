@@ -269,14 +269,37 @@ grant execute on function public.get_invoice_by_token(uuid) to anon, authenticat
 -- function without it resolves object names against the caller's search_path,
 -- which is a privilege-escalation route.
 --
--- NOTE: these two functions already exist in the live project and are not
--- reproduced here, because their exact bodies were not captured. To record them,
--- run this and paste the output in place of this comment block:
---
---   select pg_get_functiondef(p.oid)
---   from pg_proc p
---   join pg_namespace n on n.oid = p.pronamespace
---   where n.nspname = 'public'
---     and p.proname in ('get_contract_by_token', 'sign_contract');
---
--- Until then, this file cannot rebuild a project from scratch on its own.
+-- Exported from the live project with pg_get_functiondef, so this is what is
+-- actually running rather than a reconstruction.
+
+create or replace function public.get_contract_by_token(p_token uuid)
+returns table (
+  id uuid,
+  title text,
+  body text,
+  status text,
+  signed_name text,
+  signed_at timestamptz
+)
+language sql
+security definer
+set search_path to 'public'
+as $function$
+  select id, title, body, status, signed_name, signed_at
+  from public.contracts
+  where sign_token = p_token
+  limit 1;
+$function$;
+
+-- Gated on `status = 'sent'`, which is what stops a contract being signed
+-- twice, or signed while still a draft.
+create or replace function public.sign_contract(p_token uuid, p_name text)
+returns void
+language sql
+security definer
+set search_path to 'public'
+as $function$
+  update public.contracts
+  set status = 'signed', signed_name = p_name, signed_at = now()
+  where sign_token = p_token and status = 'sent';
+$function$;
