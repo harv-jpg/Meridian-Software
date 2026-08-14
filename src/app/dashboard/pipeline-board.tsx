@@ -135,6 +135,13 @@ export default function PipelineBoard({
         </button>
         {error && <p className="w-full text-sm text-red-600">{error}</p>}
       </form>
+      {/* Dragging relies on the HTML5 drag-and-drop API, which never fires on
+          touch devices. The drawer's stage switcher is the equivalent there,
+          so point to it rather than leaving a dead gesture. */}
+      <p className="mb-3 rounded-md bg-ink/5 px-3 py-2 text-xs text-slate-500 md:hidden">
+        Tap a client to open it — you can change its stage from inside. Dragging
+        cards between columns works on a larger screen.
+      </p>
 
       <div className="grid gap-3 md:grid-cols-5">
         {STAGES.map((stage) => {
