@@ -20,11 +20,11 @@ interface InvoiceView {
   issuer_email: string;
 }
 
+// The function returns rows already ordered, so no position field is needed.
 interface ItemView {
   description: string;
   quantity_centi: number;
   unit_price_pence: number;
-  position: number;
 }
 
 export default function InvoicePage() {

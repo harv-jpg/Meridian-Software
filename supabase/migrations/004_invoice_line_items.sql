@@ -94,15 +94,17 @@ create or replace function public.get_invoice_items_by_token(p_token uuid)
 returns table (
   description text,
   quantity_centi integer,
-  unit_price_pence integer,
-  position integer
+  unit_price_pence integer
 )
 language sql
 stable
 security definer
 set search_path = public
 as $$
-  select it.description, it.quantity_centi, it.unit_price_pence, it.position
+  -- `position` orders the rows but is not returned: the page renders them in
+  -- the order given, and it would also collide with the reserved word in the
+  -- column list above.
+  select it.description, it.quantity_centi, it.unit_price_pence
     from public.invoice_items it
     join public.invoices i on i.id = it.invoice_id
    where i.share_token = p_token
