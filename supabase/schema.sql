@@ -332,6 +332,10 @@ create trigger invoices_assign_number
 -- Drafts are deliberately excluded — an unsent invoice must not be reachable
 -- even by someone holding its link.
 
+-- Dropped first: `create or replace` cannot change a return type, so a
+-- signature change would otherwise fail on any project that already has it.
+drop function if exists public.get_invoice_by_token(uuid);
+
 create or replace function public.get_invoice_by_token(p_token uuid)
 returns table (
   invoice_number integer,
@@ -417,6 +421,10 @@ create trigger invoice_items_sync_total
   after insert or update or delete on public.invoice_items
   for each row execute function public.sync_invoice_total();
 
+-- Dropped first: `create or replace` cannot change a return type, so a
+-- signature change would otherwise fail on any project that already has it.
+drop function if exists public.get_invoice_items_by_token(uuid);
+
 create or replace function public.get_invoice_items_by_token(p_token uuid)
 returns table (
   description text,
@@ -456,6 +464,10 @@ grant execute on function public.get_invoice_items_by_token(uuid) to anon, authe
 --
 -- Exported from the live project with pg_get_functiondef, so this is what is
 -- actually running rather than a reconstruction.
+
+-- Dropped first: `create or replace` cannot change a return type, so a
+-- signature change would otherwise fail on any project that already has it.
+drop function if exists public.get_contract_by_token(uuid);
 
 create or replace function public.get_contract_by_token(p_token uuid)
 returns table (

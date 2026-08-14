@@ -111,6 +111,11 @@ create trigger business_profiles_touch_updated_at
 -- credential, drafts stay unreachable, and nothing is returned that the page
 -- does not display.
 
+-- `create or replace` cannot change a function's return type, and this one
+-- already exists with fewer columns from an earlier migration. Dropping first
+-- is the only way to reshape it.
+drop function if exists public.get_invoice_by_token(uuid);
+
 create or replace function public.get_invoice_by_token(p_token uuid)
 returns table (
   invoice_number integer,
