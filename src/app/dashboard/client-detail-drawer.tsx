@@ -11,27 +11,27 @@ import type {
 } from "@/lib/types";
 import { STAGES } from "@/lib/stages";
 import { formatDuration, formatGBP } from "@/lib/format";
-import NotesTab from "./notes-tab";
+import DetailsTab from "./details-tab";
 import TimeTab from "./time-tab";
 import InvoicesTab from "./invoices-tab";
 import ContractsTab from "./contracts-tab";
 
-type Tab = "notes" | "time" | "invoices" | "contracts";
+type Tab = "details" | "time" | "invoices" | "contracts";
 
 export default function ClientDetailDrawer({
   client,
   userId,
   onClose,
-  onNotesSaved,
+  onClientSaved,
   onStageChange,
 }: {
   client: ClientRecord;
   userId: string;
   onClose: () => void;
-  onNotesSaved: (notes: string) => void;
+  onClientSaved: (fields: Partial<ClientRecord>) => void;
   onStageChange: (stage: Stage) => void;
 }) {
-  const [tab, setTab] = useState<Tab>("notes");
+  const [tab, setTab] = useState<Tab>("details");
   const [loading, setLoading] = useState(true);
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -96,7 +96,7 @@ export default function ClientDetailDrawer({
     // unsaved note. Ask instead.
     if (notesDirty) {
       const ok = window.confirm(
-        "You have unsaved notes. Close anyway and lose them?"
+        "You have unsaved changes. Close anyway and lose them?"
       );
       if (!ok) return;
     }
@@ -155,7 +155,7 @@ export default function ClientDetailDrawer({
   }, [timeEntries, invoices]);
 
   const tabs: { key: Tab; label: string; count: number | null }[] = [
-    { key: "notes", label: "Notes", count: null },
+    { key: "details", label: "Details", count: null },
     { key: "time", label: "Time", count: timeEntries.length },
     { key: "invoices", label: "Invoices", count: invoices.length },
     { key: "contracts", label: "Contracts", count: contracts.length },
@@ -297,10 +297,10 @@ export default function ClientDetailDrawer({
             </p>
           ) : (
             <div key={tab} className="animate-rise">
-              {tab === "notes" && (
-                <NotesTab
+              {tab === "details" && (
+                <DetailsTab
                   client={client}
-                  onSaved={onNotesSaved}
+                  onSaved={onClientSaved}
                   onDirtyChange={setNotesDirty}
                 />
               )}
