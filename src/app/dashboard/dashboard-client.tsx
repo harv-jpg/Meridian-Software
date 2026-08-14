@@ -4,19 +4,25 @@ import { useState } from "react";
 import PipelineBoard from "./pipeline-board";
 import RevenueSummary from "./revenue-summary";
 import ImportCsvModal from "./import-csv-modal";
+import NeedsAttention from "./needs-attention";
 import { isFollowUpDue } from "@/lib/types";
-import type { ClientRecord } from "@/lib/types";
+import type { ClientRecord, Invoice } from "@/lib/types";
 
 export default function DashboardClient({
   initialClients,
+  initialInvoices,
   userId,
 }: {
   initialClients: ClientRecord[];
+  initialInvoices: Invoice[];
   userId: string;
 }) {
   const [clients, setClients] = useState<ClientRecord[]>(initialClients);
   const [showImport, setShowImport] = useState(false);
   const [onlyFollowUps, setOnlyFollowUps] = useState(false);
+  // Selection lives here rather than in the board, so the attention strip can
+  // open a client too.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const dueCount = clients.filter(isFollowUpDue).length;
 
@@ -26,6 +32,12 @@ export default function DashboardClient({
 
   return (
     <div>
+      <NeedsAttention
+        clients={clients}
+        invoices={initialInvoices}
+        onOpenClient={setSelectedId}
+      />
+
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <p className="text-sm text-slate-500">
@@ -61,6 +73,8 @@ export default function DashboardClient({
         setClients={setClients}
         userId={userId}
         onlyFollowUps={onlyFollowUps}
+        selectedId={selectedId}
+        setSelectedId={setSelectedId}
       />
 
       {showImport && (

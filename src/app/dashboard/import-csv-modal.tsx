@@ -179,7 +179,7 @@ export default function ImportCsvModal({
                     }
                     className="flex-1 rounded border border-ink/15 px-2 py-1.5 text-sm"
                   >
-                    <option value="">— don't import —</option>
+                    <option value="">— don&rsquo;t import —</option>
                     {headers.map((h) => (
                       <option key={h} value={h}>{h}</option>
                     ))}

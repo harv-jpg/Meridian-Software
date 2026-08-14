@@ -13,18 +13,22 @@ export default function PipelineBoard({
   setClients,
   userId,
   onlyFollowUps = false,
+  selectedId,
+  setSelectedId,
 }: {
   clients: ClientRecord[];
   setClients: React.Dispatch<React.SetStateAction<ClientRecord[]>>;
   userId: string;
   /** When set, columns show only clients due a follow-up. */
   onlyFollowUps?: boolean;
+  /** Controlled by the dashboard so the attention strip can open a client. */
+  selectedId: string | null;
+  setSelectedId: (id: string | null) => void;
 }) {
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<Stage | null>(null);
 

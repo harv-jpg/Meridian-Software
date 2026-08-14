@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -23,7 +23,9 @@ export default function SignPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  const supabase = createClient();
+  // Memoised so it is not rebuilt on every render, which also makes it a
+  // stable dependency for the effect below.
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     async function load() {
@@ -38,7 +40,7 @@ export default function SignPage() {
       setLoading(false);
     }
     load();
-  }, [token]);
+  }, [token, supabase]);
 
   async function handleSign(e: React.FormEvent) {
     e.preventDefault();

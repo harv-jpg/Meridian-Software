@@ -4,6 +4,7 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Contract, ContractStatus } from "@/lib/types";
 import { formatDate } from "@/lib/format";
+import { sendByEmail } from "@/lib/send";
 
 const TEMPLATE = `This is a simple working agreement between [Your Name] and [Client Name] for [brief description of the work].
 
@@ -26,17 +27,22 @@ export default function ContractsTab({
   userId,
   contracts,
   setContracts,
+  clientEmail,
+  clientName,
 }: {
   clientId: string;
   userId: string;
   contracts: Contract[];
   setContracts: React.Dispatch<React.SetStateAction<Contract[]>>;
+  clientEmail: string | null;
+  clientName: string;
 }) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState(TEMPLATE);
   const [creating, setCreating] = useState(false);
   const [composing, setComposing] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [sendingId, setSendingId] = useState<string | null>(null);
 
   const supabase = createClient();
 
@@ -93,6 +99,31 @@ export default function ContractsTab({
       setTimeout(() => setCopiedId((id) => (id === contract.id ? null : id)), 2000);
     } catch {
       window.prompt("Copy this signing link:", link);
+    }
+  }
+
+  async function emailContract(contract: Contract) {
+    if (!clientEmail) return;
+    // Sending leaves the app and cannot be taken back, so name the recipient
+    // and make the user agree to it first.
+    const ok = window.confirm(
+      `Email "${contract.title}" to ${clientName} at ${clientEmail} for signing?`
+    );
+    if (!ok) return;
+
+    setSendingId(contract.id);
+    const result = await sendByEmail("contract", contract.id);
+    setSendingId(null);
+
+    if (result.sent) {
+      alert(`Sent to ${result.to}.`);
+    } else if (!result.configured) {
+      alert(
+        "Email hasn't been set up on this deployment, so nothing was sent. " +
+          "Use Copy signing link instead, or add RESEND_API_KEY and EMAIL_FROM."
+      );
+    } else {
+      alert(result.error ?? "Could not send.");
     }
   }
 
@@ -170,12 +201,27 @@ export default function ContractsTab({
                   </button>
                 )}
                 {c.status === "sent" && (
-                  <button
-                    onClick={() => copyLink(c)}
-                    className="font-medium text-teal hover:underline"
-                  >
-                    {copiedId === c.id ? "✓ Link copied" : "Copy signing link"}
-                  </button>
+                  <>
+                    <button
+                      onClick={() => copyLink(c)}
+                      className="font-medium text-teal hover:underline"
+                    >
+                      {copiedId === c.id ? "✓ Link copied" : "Copy signing link"}
+                    </button>
+                    {clientEmail ? (
+                      <button
+                        onClick={() => emailContract(c)}
+                        disabled={sendingId === c.id}
+                        className="font-medium text-teal hover:underline disabled:opacity-60"
+                      >
+                        {sendingId === c.id ? "Sending…" : "Email it"}
+                      </button>
+                    ) : (
+                      <span className="text-slate-400">
+                        Add an email in Details to send it
+                      </span>
+                    )}
+                  </>
                 )}
                 {c.status === "signed" && (
                   <span className="text-slate-500">

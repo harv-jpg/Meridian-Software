@@ -18,6 +18,11 @@ Negotiating → Won/Lost). Cards are draggable between columns, and each column
 shows its count and total value. A summary strip above the board gives pipeline
 value, won value, win rate and a stage distribution bar.
 
+**Needs attention** — the first thing on the dashboard: overdue invoices and
+due follow-ups in one list, each opening the client it belongs to, with the
+total outstanding past its due date along the bottom. It hides itself when
+there is nothing to do.
+
 **Follow-ups** — a client can carry a date you next intend to chase them. Once
 that day arrives the card flags itself, and a counter beside the client total
 filters the board down to only those, so "who haven't I chased" has an answer
@@ -35,8 +40,9 @@ total paid. Below that, four tabs:
 - **Time** — a live timer, or log minutes by hand; entries are marked `billed`
   once invoiced
 - **Invoices** — generate from unbilled time at an hourly rate, or as a fixed
-  fee; each gets a per-user invoice number and an optional due date, status
-  moves draft → sent → paid, and overdue ones are flagged in red
+  fee; each gets a per-user invoice number, an optional due date and line
+  items you can add to while it is still a draft. Status moves draft → sent →
+  paid, and overdue ones are flagged in red
 - **Contracts** — write from a template, then share a signing link
 
 **Contract signing** — `/sign/[token]` is a public page. The client opens the
@@ -51,6 +57,11 @@ showing the amount, due date, issuer and paid/overdue status. It reaches the
 invoice through the same `security definer` pattern, and deliberately refuses to
 serve drafts — an unsent invoice stays invisible even to someone holding its
 link.
+
+**Sending** — with an email provider configured, invoices and contracts can be
+emailed to the client straight from the drawer, with the share link embedded
+and replies going to your own address. Without one the buttons say so and you
+copy the link instead — nothing else changes.
 
 **CSV import** — bring clients in from a spreadsheet or another CRM, mapping
 your columns onto name, email, phone, company, value, stage and notes. The
@@ -87,6 +98,12 @@ npm install
 npm run dev
 ```
 
+Optionally set `RESEND_API_KEY` and `EMAIL_FROM` to turn on email; see
+`.env.local.example`. Everything works without them.
+
+**Checks.** `npm test` runs the unit tests, `npm run lint` the linter, and
+`npm run build` type-checks as it compiles.
+
 Then open http://localhost:3000.
 
 ## How it fits together
@@ -98,11 +115,14 @@ src/
     types.ts                 row types for the four tables, plus isOverdue
     stages.ts                pipeline stages and their colour classes
     format.ts                money, duration and date formatting
+    invoice.ts               line-item totals; mirrors the database trigger
+    send.ts                  client wrapper around the email route
     supabase/                browser and server clients
   app/
     page.tsx                 landing
     login/  signup/          auth screens
     auth/callback/           Supabase auth redirect handler
+    api/send/                emails an invoice or contract to the client
     sign/[token]/            public contract signing
     invoice/[token]/         public read-only invoice view
     dashboard/
@@ -112,6 +132,7 @@ src/
       revenue-summary.tsx    headline figures + stage distribution
       client-detail-drawer.tsx  slide-over panel; loads all client records once
       details-tab.tsx  time-tab.tsx  invoices-tab.tsx  contracts-tab.tsx
+      needs-attention.tsx      overdue invoices + due follow-ups
       import-csv-modal.tsx
 supabase/
   schema.sql                 full schema; run this on a new project
@@ -142,15 +163,13 @@ policies first.
 
 ## Known gaps
 
-- **Invoices have no line items** — an invoice is still a single amount with a
-  basis, so a bill assembled from several rates, or itemised for the client,
-  can't be expressed.
-- **Nothing sends an invoice.** Status moves to `sent` and a link can be copied,
-  but the copying and sending are manual — there's no email step, and no
-  reminder when one goes overdue.
+- **No reminders.** Overdue invoices and due follow-ups are surfaced when you
+  open the app, but nothing chases them on your behalf — there is no scheduler
+  and nothing runs in the background.
+- **Only unit tests.** The pure logic is covered; nothing exercises the
+  components or the database policies, which is where the costlier bugs have
+  been.
 - **Signing captures name and timestamp only** — no IP or user agent, which is
   the thin part of an e-signature's evidentiary value.
-- **No tests, and no ESLint config file**, so `npm run lint` prompts for setup
-  on first run.
 - **No Stripe, and no AI features** — both were always planned to come after the
   core CRM worked.

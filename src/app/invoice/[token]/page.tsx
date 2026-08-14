@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate, formatGBP } from "@/lib/format";
+import { formatQuantity, lineTotalPence } from "@/lib/invoice";
 
 // Mirrors the return type of the get_invoice_by_token function. The client
 // viewing this page has no account, so this is the only data they can reach —
@@ -19,26 +20,38 @@ interface InvoiceView {
   issuer_email: string;
 }
 
+interface ItemView {
+  description: string;
+  quantity_centi: number;
+  unit_price_pence: number;
+  position: number;
+}
+
 export default function InvoicePage() {
   const params = useParams();
   const token = params.token as string;
 
   const [invoice, setInvoice] = useState<InvoiceView | null>(null);
+  const [items, setItems] = useState<ItemView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const supabase = createClient();
+  // Memoised so it is not rebuilt on every render, which also makes it a
+  // stable dependency for the effect below.
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     async function load() {
       try {
-        const { data, error } = await supabase.rpc("get_invoice_by_token", {
-          p_token: token,
-        });
+        const [{ data, error }, { data: itemData }] = await Promise.all([
+          supabase.rpc("get_invoice_by_token", { p_token: token }),
+          supabase.rpc("get_invoice_items_by_token", { p_token: token }),
+        ]);
         if (error || !data || data.length === 0) {
           setError("This link isn't valid, or the invoice can't be found.");
         } else {
           setInvoice(data[0] as InvoiceView);
+          setItems((itemData ?? []) as ItemView[]);
         }
       } catch {
         setError("Could not load this invoice. Check your connection.");
@@ -47,7 +60,7 @@ export default function InvoicePage() {
       }
     }
     load();
-  }, [token]);
+  }, [token, supabase]);
 
   if (loading) {
     return (
@@ -119,15 +132,43 @@ export default function InvoicePage() {
                   </dd>
                 </div>
               )}
-              <div className="flex justify-between gap-4">
-                <dt className="text-slate-500">For</dt>
-                <dd className="text-right">
-                  {invoice.basis === "time"
-                    ? "Time worked"
-                    : "Agreed fixed fee"}
-                </dd>
-              </div>
             </dl>
+
+            {/* Itemised where lines exist; older invoices predate them and
+                fall back to describing the basis. */}
+            {items.length > 0 ? (
+              <table className="mt-6 w-full text-sm">
+                <thead>
+                  <tr className="border-b border-ink/10 text-left">
+                    <th className="pb-2 font-medium text-slate-500">Description</th>
+                    <th className="pb-2 text-right font-medium text-slate-500">Qty</th>
+                    <th className="pb-2 text-right font-medium text-slate-500">Each</th>
+                    <th className="pb-2 text-right font-medium text-slate-500">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((item, i) => (
+                    <tr key={i} className="border-b border-ink/5">
+                      <td className="py-2 pr-3">{item.description}</td>
+                      <td className="py-2 text-right font-mono tabular-nums text-slate-500">
+                        {formatQuantity(item.quantity_centi)}
+                      </td>
+                      <td className="py-2 text-right font-mono tabular-nums text-slate-500">
+                        {formatGBP(item.unit_price_pence)}
+                      </td>
+                      <td className="py-2 text-right font-mono tabular-nums font-medium">
+                        {formatGBP(lineTotalPence(item))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="mt-6 text-sm text-slate-500">
+                For:{" "}
+                {invoice.basis === "time" ? "time worked" : "agreed fixed fee"}
+              </p>
+            )}
 
             <div className="mt-6 flex items-baseline justify-between border-t border-ink/10 pt-5">
               <span className="label">Amount due</span>

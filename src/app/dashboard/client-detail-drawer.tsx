@@ -6,6 +6,7 @@ import type {
   ClientRecord,
   Contract,
   Invoice,
+  InvoiceItem,
   Stage,
   TimeEntry,
 } from "@/lib/types";
@@ -35,13 +36,16 @@ export default function ClientDetailDrawer({
   const [loading, setLoading] = useState(true);
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [invoiceItems, setInvoiceItems] = useState<InvoiceItem[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [notesDirty, setNotesDirty] = useState(false);
   const [savingStage, setSavingStage] = useState(false);
   const [loadError, setLoadError] = useState(false);
 
   const panelRef = useRef<HTMLDivElement>(null);
-  const supabase = createClient();
+  // Memoised so it is a stable dependency for the loading effect rather than
+  // a new object on every render.
+  const supabase = useMemo(() => createClient(), []);
 
   // Everything the drawer shows is fetched once, here, rather than each tab
   // fetching on mount. Switching tabs used to mean a fresh round-trip and a
@@ -72,9 +76,24 @@ export default function ClientDetailDrawer({
         ]);
 
         if (cancelled) return;
+        const loadedInvoices = (invoiceRes.data ?? []) as Invoice[];
         setTimeEntries((timeRes.data ?? []) as TimeEntry[]);
-        setInvoices((invoiceRes.data ?? []) as Invoice[]);
+        setInvoices(loadedInvoices);
         setContracts((contractRes.data ?? []) as Contract[]);
+
+        // Line items need the invoice ids, so this one cannot join the
+        // parallel batch above. Skipped entirely when there are no invoices.
+        if (loadedInvoices.length > 0) {
+          const { data: itemData } = await supabase
+            .from("invoice_items")
+            .select("*")
+            .in("invoice_id", loadedInvoices.map((i) => i.id))
+            .order("position", { ascending: true });
+          if (cancelled) return;
+          setInvoiceItems((itemData ?? []) as InvoiceItem[]);
+        } else {
+          setInvoiceItems([]);
+        }
       } catch {
         // A rejected request (offline, DNS failure) would otherwise leave the
         // panel showing its loading skeleton indefinitely.
@@ -89,7 +108,7 @@ export default function ClientDetailDrawer({
     return () => {
       cancelled = true;
     };
-  }, [client.id]);
+  }, [client.id, supabase]);
 
   const requestClose = useCallback(() => {
     // The old modal closed on any backdrop click, which quietly discarded an
@@ -320,6 +339,10 @@ export default function ClientDetailDrawer({
                   setInvoices={setInvoices}
                   timeEntries={timeEntries}
                   setTimeEntries={setTimeEntries}
+                  items={invoiceItems}
+                  setItems={setInvoiceItems}
+                  clientEmail={client.email}
+                  clientName={client.name}
                   defaultFixedFeePence={client.value_pence}
                 />
               )}
@@ -329,6 +352,8 @@ export default function ClientDetailDrawer({
                   userId={userId}
                   contracts={contracts}
                   setContracts={setContracts}
+                  clientEmail={client.email}
+                  clientName={client.name}
                 />
               )}
             </div>

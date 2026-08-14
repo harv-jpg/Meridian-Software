@@ -3,8 +3,16 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { isOverdue } from "@/lib/types";
-import type { Invoice, InvoiceStatus, TimeEntry } from "@/lib/types";
+import type { Invoice, InvoiceItem, InvoiceStatus, TimeEntry } from "@/lib/types";
+import {
+  formatQuantity,
+  itemsTotalPence,
+  lineTotalPence,
+  parsePricePence,
+  parseQuantity,
+} from "@/lib/invoice";
 import { formatDate, formatGBP, formatHours } from "@/lib/format";
+import { sendByEmail } from "@/lib/send";
 
 const STATUS_STYLE: Record<InvoiceStatus, string> = {
   draft: "border-slate-300 bg-slate-100 text-slate-600",
@@ -30,6 +38,10 @@ export default function InvoicesTab({
   setInvoices,
   timeEntries,
   setTimeEntries,
+  items,
+  setItems,
+  clientEmail,
+  clientName,
   defaultFixedFeePence,
 }: {
   clientId: string;
@@ -38,6 +50,10 @@ export default function InvoicesTab({
   setInvoices: React.Dispatch<React.SetStateAction<Invoice[]>>;
   timeEntries: TimeEntry[];
   setTimeEntries: React.Dispatch<React.SetStateAction<TimeEntry[]>>;
+  items: InvoiceItem[];
+  setItems: React.Dispatch<React.SetStateAction<InvoiceItem[]>>;
+  clientEmail: string | null;
+  clientName: string;
   defaultFixedFeePence: number | null;
 }) {
   const [rate, setRate] = useState("50");
@@ -48,28 +64,41 @@ export default function InvoicesTab({
   const [dueDate, setDueDate] = useState(() => dateInDays(DEFAULT_TERMS_DAYS));
   const [generating, setGenerating] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [sendingId, setSendingId] = useState<string | null>(null);
 
   const supabase = createClient();
 
   // Derived from the drawer's shared time entries, so logging time in the
-  // Time tab updates this figure immediately instead of leaving it stale
-  // until the panel is reopened.
+  // Time tab updates this figure immediately.
   const unbilledMinutes = timeEntries
     .filter((e) => e.invoice_id === null)
     .reduce((sum, e) => sum + e.minutes, 0);
 
   const hourlyRatePence = Math.round(parseFloat(rate || "0") * 100);
+  // Quantity is settled first and the preview derived from it, so the figure
+  // on screen is exactly what the line item will store — otherwise rounding
+  // the hours and rounding the total disagree by a few pence.
+  const quantityCenti = Math.round((unbilledMinutes / 60) * 100);
   const previewPence =
     basis === "time"
-      ? Math.round((unbilledMinutes / 60) * hourlyRatePence)
+      ? lineTotalPence({
+          quantity_centi: quantityCenti,
+          unit_price_pence: hourlyRatePence,
+        })
       : Math.round(parseFloat(fixedAmount || "0") * 100);
 
-  // Keep the fixed-fee field in step if the client's estimated value changes.
   useEffect(() => {
     if (basis === "fixed" && !fixedAmount && defaultFixedFeePence) {
       setFixedAmount((defaultFixedFeePence / 100).toString());
     }
   }, [basis, fixedAmount, defaultFixedFeePence]);
+
+  function itemsFor(invoiceId: string) {
+    return items
+      .filter((i) => i.invoice_id === invoiceId)
+      .sort((a, b) => a.position - b.position);
+  }
 
   async function generateInvoice() {
     if (!previewPence || previewPence <= 0) {
@@ -96,6 +125,34 @@ export default function InvoicesTab({
       alert("Could not create the invoice — please try again.");
       return;
     }
+
+    // Every invoice starts with one line describing what it is for, so the
+    // client always sees more than a bare total.
+    const firstItem =
+      basis === "time"
+        ? {
+            description: `Time worked (${formatHours(unbilledMinutes)})`,
+            quantity_centi: quantityCenti,
+            unit_price_pence: hourlyRatePence,
+          }
+        : {
+            description: "Agreed fixed fee",
+            quantity_centi: 100,
+            unit_price_pence: previewPence,
+          };
+
+    const { data: itemRow } = await supabase
+      .from("invoice_items")
+      .insert({
+        invoice_id: invoice.id,
+        user_id: userId,
+        position: 0,
+        ...firstItem,
+      })
+      .select()
+      .single();
+
+    if (itemRow) setItems((prev) => [...prev, itemRow as InvoiceItem]);
 
     if (basis === "time") {
       const { data: billed, error: billError } = await supabase
@@ -124,7 +181,64 @@ export default function InvoicesTab({
     }
 
     setInvoices((prev) => [invoice as Invoice, ...prev]);
+    setExpandedId(invoice.id as string);
     setGenerating(false);
+  }
+
+  /** The database trigger recomputes the stored total; mirror it locally. */
+  function syncTotal(invoiceId: string, nextItems: InvoiceItem[]) {
+    const forInvoice = nextItems.filter((i) => i.invoice_id === invoiceId);
+    if (forInvoice.length === 0) return;
+    const total = itemsTotalPence(forInvoice);
+    setInvoices((prev) =>
+      prev.map((i) => (i.id === invoiceId ? { ...i, amount_pence: total } : i))
+    );
+  }
+
+  async function addItem(
+    invoiceId: string,
+    description: string,
+    quantityCenti: number,
+    unitPricePence: number
+  ) {
+    const position = itemsFor(invoiceId).length;
+    const { data, error } = await supabase
+      .from("invoice_items")
+      .insert({
+        invoice_id: invoiceId,
+        user_id: userId,
+        description,
+        quantity_centi: quantityCenti,
+        unit_price_pence: unitPricePence,
+        position,
+      })
+      .select()
+      .single();
+
+    if (error || !data) {
+      alert("Could not add that line — please try again.");
+      return;
+    }
+    const next = [...items, data as InvoiceItem];
+    setItems(next);
+    syncTotal(invoiceId, next);
+  }
+
+  async function removeItem(item: InvoiceItem) {
+    const previous = items;
+    const next = items.filter((i) => i.id !== item.id);
+    setItems(next);
+    syncTotal(item.invoice_id, next);
+
+    const { error } = await supabase
+      .from("invoice_items")
+      .delete()
+      .eq("id", item.id);
+    if (error) {
+      setItems(previous);
+      syncTotal(item.invoice_id, previous);
+      alert("Could not remove that line — please try again.");
+    }
   }
 
   async function updateStatus(invoiceId: string, status: InvoiceStatus) {
@@ -153,6 +267,31 @@ export default function InvoicesTab({
       );
     } catch {
       window.prompt("Copy this invoice link:", link);
+    }
+  }
+
+  async function emailInvoice(invoice: Invoice) {
+    if (!clientEmail) return;
+    // Sending leaves the app and cannot be taken back, so name the recipient
+    // and make the user agree to it first.
+    const ok = window.confirm(
+      `Email invoice #${invoice.invoice_number} for ${formatGBP(invoice.amount_pence)} to ${clientName} at ${clientEmail}?`
+    );
+    if (!ok) return;
+
+    setSendingId(invoice.id);
+    const result = await sendByEmail("invoice", invoice.id);
+    setSendingId(null);
+
+    if (result.sent) {
+      alert(`Sent to ${result.to}.`);
+    } else if (!result.configured) {
+      alert(
+        "Email hasn't been set up on this deployment, so nothing was sent. " +
+          "Use Copy invoice link instead, or add RESEND_API_KEY and EMAIL_FROM."
+      );
+    } else {
+      alert(result.error ?? "Could not send.");
     }
   }
 
@@ -255,6 +394,8 @@ export default function InvoicesTab({
         <ul className="mt-5 space-y-2">
           {invoices.map((inv) => {
             const overdue = isOverdue(inv);
+            const invItems = itemsFor(inv.id);
+            const expanded = expandedId === inv.id;
             return (
               <li
                 key={inv.id}
@@ -281,8 +422,6 @@ export default function InvoicesTab({
                     </p>
                   </div>
 
-                  {/* The control is the status indicator — showing a separate
-                      read-only pill next to it just said the same thing twice. */}
                   <select
                     value={inv.status}
                     onChange={(e) =>
@@ -301,23 +440,55 @@ export default function InvoicesTab({
                   </select>
                 </div>
 
-                {/* Drafts have no shareable link on purpose — the database
-                    function that serves the public page ignores them, so a
-                    link would 404 until the invoice is marked sent. */}
-                <div className="mt-2 text-xs">
+                <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+                  <button
+                    onClick={() => setExpandedId(expanded ? null : inv.id)}
+                    className="font-medium text-slate-500 hover:text-ink"
+                    aria-expanded={expanded}
+                  >
+                    {expanded ? "Hide" : "Show"} {invItems.length} line
+                    {invItems.length === 1 ? "" : "s"}
+                  </button>
+
                   {inv.status === "draft" ? (
                     <span className="text-slate-400">
                       Mark as sent to get a link you can share.
                     </span>
                   ) : (
-                    <button
-                      onClick={() => copyLink(inv)}
-                      className="font-medium text-teal hover:underline"
-                    >
-                      {copiedId === inv.id ? "✓ Link copied" : "Copy invoice link"}
-                    </button>
+                    <>
+                      <button
+                        onClick={() => copyLink(inv)}
+                        className="font-medium text-teal hover:underline"
+                      >
+                        {copiedId === inv.id ? "✓ Link copied" : "Copy invoice link"}
+                      </button>
+                      {clientEmail ? (
+                        <button
+                          onClick={() => emailInvoice(inv)}
+                          disabled={sendingId === inv.id}
+                          className="font-medium text-teal hover:underline disabled:opacity-60"
+                        >
+                          {sendingId === inv.id ? "Sending…" : "Email it"}
+                        </button>
+                      ) : (
+                        <span className="text-slate-400">
+                          Add an email in Details to send it
+                        </span>
+                      )}
+                    </>
                   )}
                 </div>
+
+                {expanded && (
+                  <div className="animate-rise mt-3 border-t border-ink/10 pt-3">
+                    <LineItems
+                      items={invItems}
+                      editable={inv.status === "draft"}
+                      onRemove={removeItem}
+                      onAdd={(d, q, p) => addItem(inv.id, d, q, p)}
+                    />
+                  </div>
+                )}
               </li>
             );
           })}
@@ -325,6 +496,125 @@ export default function InvoicesTab({
       ) : (
         <p className="mt-5 rounded-lg border border-dashed border-ink/15 px-4 py-6 text-center text-sm text-slate-400">
           No invoices yet.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function LineItems({
+  items,
+  editable,
+  onRemove,
+  onAdd,
+}: {
+  items: InvoiceItem[];
+  editable: boolean;
+  onRemove: (item: InvoiceItem) => void;
+  onAdd: (description: string, quantityCenti: number, pricePence: number) => void;
+}) {
+  const [description, setDescription] = useState("");
+  const [quantity, setQuantity] = useState("1");
+  const [price, setPrice] = useState("");
+  const [error, setError] = useState("");
+
+  function submit() {
+    const q = parseQuantity(quantity);
+    const p = parsePricePence(price);
+    if (!description.trim()) return setError("Give the line a description.");
+    if (q === null) return setError("Quantity must be more than zero.");
+    if (p === null) return setError("Enter a price of zero or more.");
+
+    setError("");
+    onAdd(description.trim(), q, p);
+    setDescription("");
+    setQuantity("1");
+    setPrice("");
+  }
+
+  return (
+    <div>
+      {items.length > 0 ? (
+        <ul className="space-y-1.5">
+          {items.map((item) => (
+            <li
+              key={item.id}
+              className="group flex items-baseline justify-between gap-3 text-xs"
+            >
+              <span className="min-w-0 flex-1 truncate">{item.description}</span>
+              <span className="shrink-0 font-mono text-slate-400">
+                {formatQuantity(item.quantity_centi)} ×{" "}
+                {formatGBP(item.unit_price_pence)}
+              </span>
+              <span className="w-20 shrink-0 text-right font-mono font-medium">
+                {formatGBP(lineTotalPence(item))}
+              </span>
+              {editable && (
+                <button
+                  onClick={() => onRemove(item)}
+                  aria-label={`Remove ${item.description}`}
+                  className="shrink-0 text-slate-300 opacity-0 transition
+                             hover:text-red-600 focus-visible:opacity-100
+                             group-hover:opacity-100"
+                >
+                  ✕
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-xs text-slate-400">No lines on this invoice.</p>
+      )}
+
+      {editable ? (
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <div className="min-w-[140px] flex-1">
+            <label className="label" htmlFor="li-desc">
+              Description
+            </label>
+            <input
+              id="li-desc"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submit()}
+              placeholder="Extra revisions"
+              className="field mt-1 text-xs"
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="li-qty">
+              Qty
+            </label>
+            <input
+              id="li-qty"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submit()}
+              className="field mt-1 w-16 text-xs"
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="li-price">
+              £ each
+            </label>
+            <input
+              id="li-price"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submit()}
+              placeholder="150"
+              className="field mt-1 w-20 text-xs"
+            />
+          </div>
+          <button onClick={submit} className="btn-ghost text-xs">
+            Add line
+          </button>
+          {error && <p className="w-full text-xs text-red-600">{error}</p>}
+        </div>
+      ) : (
+        <p className="mt-3 text-xs text-slate-400">
+          Lines can only be changed while an invoice is still a draft.
         </p>
       )}
     </div>

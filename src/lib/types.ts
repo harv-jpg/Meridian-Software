@@ -41,6 +41,17 @@ export interface Invoice {
   created_at: string;
 }
 
+export interface InvoiceItem {
+  id: string;
+  invoice_id: string;
+  description: string;
+  /** Hundredths, so 150 means 1.5. Avoids floats for part-hours and part-days. */
+  quantity_centi: number;
+  unit_price_pence: number;
+  position: number;
+  created_at: string;
+}
+
 export interface Contract {
   id: string;
   client_id: string;
