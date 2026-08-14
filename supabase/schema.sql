@@ -22,6 +22,8 @@ create table if not exists public.clients (
   stage text not null default 'lead' check (stage in ('lead', 'proposal_sent', 'negotiating', 'won', 'lost')),
   value_pence integer, -- store money as integer pence to avoid float rounding issues
   notes text,
+  follow_up_on date, -- the day you next intend to chase this deal
+
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -179,6 +181,11 @@ create policy "Owners can delete their own contracts"
 create index if not exists time_entries_client_id_idx on public.time_entries (client_id);
 create index if not exists invoices_client_id_idx on public.invoices (client_id);
 create index if not exists contracts_client_id_idx on public.contracts (client_id);
+
+-- The board filters on this across every client on each render.
+create index if not exists clients_follow_up_on_idx
+  on public.clients (user_id, follow_up_on)
+  where follow_up_on is not null;
 
 -- ---------------------------------------------------------------------------
 -- Invoice numbering

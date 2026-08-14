@@ -12,6 +12,8 @@ export interface ClientRecord {
   stage: Stage;
   value_pence: number | null;
   notes: string | null;
+  /** ISO date (no time). The day you next intend to chase this deal. */
+  follow_up_on: string | null;
   created_at: string;
 }
 
@@ -51,10 +53,26 @@ export interface Contract {
   created_at: string;
 }
 
+/** Today as an ISO date, for comparing against date-only columns. */
+export function todayISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * A follow-up is due once its date arrives — unlike an overdue invoice, which
+ * needs the date to have *passed*. You chase someone on the day you said you
+ * would, but an invoice due today isn't late yet.
+ */
+export function isFollowUpDue(
+  client: Pick<ClientRecord, "follow_up_on">
+): boolean {
+  if (!client.follow_up_on) return false;
+  return client.follow_up_on <= todayISO();
+}
+
 /** An invoice is overdue once its due date has passed and it isn't paid. */
 export function isOverdue(invoice: Pick<Invoice, "due_date" | "status">): boolean {
   if (!invoice.due_date || invoice.status === "paid") return false;
   // Compare dates only — an invoice due today is not yet overdue.
-  const today = new Date().toISOString().slice(0, 10);
-  return invoice.due_date < today;
+  return invoice.due_date < todayISO();
 }

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { ClientRecord, Stage } from "@/lib/types";
+import { isFollowUpDue } from "@/lib/types";
 import { STAGES } from "@/lib/stages";
 import { formatGBP, formatGBPShort } from "@/lib/format";
 import ClientDetailDrawer from "./client-detail-drawer";
@@ -11,10 +12,13 @@ export default function PipelineBoard({
   clients,
   setClients,
   userId,
+  onlyFollowUps = false,
 }: {
   clients: ClientRecord[];
   setClients: React.Dispatch<React.SetStateAction<ClientRecord[]>>;
   userId: string;
+  /** When set, columns show only clients due a follow-up. */
+  onlyFollowUps?: boolean;
 }) {
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
@@ -146,7 +150,10 @@ export default function PipelineBoard({
 
       <div className="grid gap-3 md:grid-cols-5">
         {STAGES.map((stage) => {
-          const inStage = clients.filter((c) => c.stage === stage.key);
+          const inStage = clients.filter(
+            (c) =>
+              c.stage === stage.key && (!onlyFollowUps || isFollowUpDue(c))
+          );
           const stageValue = inStage.reduce(
             (sum, c) => sum + (c.value_pence ?? 0),
             0
@@ -254,6 +261,19 @@ export default function PipelineBoard({
                         </span>
                       )}
                     </div>
+
+                    {/* Its own row — beside the value it wrapped and crowded
+                        the card at narrow column widths. */}
+                    {isFollowUpDue(c) && (
+                      <p
+                        className="mt-2 inline-flex items-center gap-1 rounded-full bg-teal/10
+                                   px-2 py-0.5 text-[10px] font-semibold uppercase
+                                   tracking-wide text-teal"
+                      >
+                        <span className="h-1 w-1 rounded-full bg-teal" />
+                        Follow up
+                      </p>
+                    )}
                   </article>
                 ))}
 
@@ -265,7 +285,11 @@ export default function PipelineBoard({
                         : "border-ink/10 text-slate-300"
                     }`}
                   >
-                    {isDropTarget ? "Drop here" : "Empty"}
+                    {isDropTarget
+                      ? "Drop here"
+                      : onlyFollowUps
+                        ? "None due"
+                        : "Empty"}
                   </p>
                 )}
               </div>

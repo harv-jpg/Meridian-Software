@@ -3,13 +3,30 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { ClientRecord } from "@/lib/types";
+import { isFollowUpDue, todayISO } from "@/lib/types";
+import { formatDate } from "@/lib/format";
 
 type Draft = {
   email: string;
   phone: string;
   company: string;
   notes: string;
+  follow_up_on: string;
 };
+
+/** Quick options, so the common case is one click rather than a date picker. */
+const PRESETS: { label: string; days: number }[] = [
+  { label: "Tomorrow", days: 1 },
+  { label: "In a week", days: 7 },
+  { label: "In 2 weeks", days: 14 },
+  { label: "In a month", days: 30 },
+];
+
+function dateInDays(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 
 function draftFrom(client: ClientRecord): Draft {
   return {
@@ -17,6 +34,7 @@ function draftFrom(client: ClientRecord): Draft {
     phone: client.phone ?? "",
     company: client.company ?? "",
     notes: client.notes ?? "",
+    follow_up_on: client.follow_up_on ?? "",
   };
 }
 
@@ -39,7 +57,8 @@ export default function DetailsTab({
     draft.email !== saved.email ||
     draft.phone !== saved.phone ||
     draft.company !== saved.company ||
-    draft.notes !== saved.notes;
+    draft.notes !== saved.notes ||
+    draft.follow_up_on !== saved.follow_up_on;
 
   // The drawer needs to know about unsaved edits so it can warn before closing.
   useEffect(() => {
@@ -66,6 +85,7 @@ export default function DetailsTab({
       phone: draft.phone.trim() || null,
       company: draft.company.trim() || null,
       notes: draft.notes,
+      follow_up_on: draft.follow_up_on || null,
     };
 
     const { error } = await supabase
@@ -154,6 +174,60 @@ export default function DetailsTab({
               </a>
             )}
           </div>
+        )}
+      </div>
+
+      {/* Overdue invoices answer "who owes me money". This answers "who
+          haven't I chased", which is the half the board could not show. */}
+      <div className="card mt-4 p-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <label className="label" htmlFor="follow-up">
+              Follow up on
+            </label>
+            <input
+              id="follow-up"
+              type="date"
+              value={draft.follow_up_on}
+              min={todayISO()}
+              onChange={(e) => set("follow_up_on", e.target.value)}
+              className="field mt-1 w-40"
+            />
+          </div>
+
+          {draft.follow_up_on && (
+            <button
+              onClick={() => set("follow_up_on", "")}
+              className="pb-2 text-xs font-medium text-slate-400 hover:text-ink"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {PRESETS.map((p) => (
+            <button
+              key={p.label}
+              onClick={() => set("follow_up_on", dateInDays(p.days))}
+              className="rounded-full border border-ink/15 bg-white px-2.5 py-1
+                         text-xs font-medium text-slate-600 transition
+                         hover:border-teal/50 hover:bg-teal/5 hover:text-teal"
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        {client.follow_up_on && (
+          <p
+            className={`mt-3 border-t border-ink/10 pt-3 text-xs ${
+              isFollowUpDue(client) ? "font-medium text-teal" : "text-slate-500"
+            }`}
+          >
+            {isFollowUpDue(client) ? "Due now — " : "Scheduled for "}
+            {formatDate(client.follow_up_on)}
+          </p>
         )}
       </div>
 
