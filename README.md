@@ -68,14 +68,10 @@ policies, and is safe to re-run against a project that already has some of them.
 It already includes the contact columns, invoice numbering and invoice sharing,
 so a fresh project needs nothing from `supabase/migrations/`.
 
-> **Upgrading a project created before those existed?** Run
-> `supabase/migrations/001_contacts_and_invoice_sharing.sql` instead. It adds the
-> client contact columns, invoice numbers, due dates and share tokens to tables
-> that already hold data, which re-running `schema.sql` alone will not do.
-
-> Either way, the two contract-signing functions are **not** in `schema.sql` —
-> see [Known gaps](#known-gaps). A project needs them added by hand before
-> `/sign/[token]` will work.
+> **Upgrading a project created before those existed?** Run the files in
+> `supabase/migrations/` in order instead. They alter tables that already hold
+> data, which re-running `schema.sql` alone will not do — `create table if not
+> exists` skips a table that is already there, new columns and all.
 
 **4. Run it.**
 
@@ -139,13 +135,6 @@ policies first.
 
 ## Known gaps
 
-- **`schema.sql` doesn't define the two signing functions.**
-  `get_contract_by_token` and `sign_contract` exist in the live database but
-  their bodies were never captured into the repo, so the file can't rebuild a
-  project from scratch.
-- **Dead components.** `time-tracker.tsx`, `contract-panel.tsx` and
-  `invoice-panel.tsx` are unused, superseded by the `*-tab.tsx` versions, and
-  still carry the old styling.
 - **Invoices have no line items** — an invoice is still a single amount with a
   basis, so a bill assembled from several rates, or itemised for the client,
   can't be expressed.
