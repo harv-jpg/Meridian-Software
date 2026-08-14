@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { isOverdue } from "@/lib/types";
 import type { Invoice, InvoiceStatus, TimeEntry } from "@/lib/types";
 import { formatDate, formatGBP, formatHours } from "@/lib/format";
 
@@ -12,6 +13,15 @@ const STATUS_STYLE: Record<InvoiceStatus, string> = {
 };
 
 const STATUSES: InvoiceStatus[] = ["draft", "sent", "paid"];
+
+/** Default payment terms, in days from today. */
+const DEFAULT_TERMS_DAYS = 30;
+
+function dateInDays(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 
 export default function InvoicesTab({
   clientId,
@@ -35,7 +45,9 @@ export default function InvoicesTab({
     defaultFixedFeePence ? (defaultFixedFeePence / 100).toString() : ""
   );
   const [basis, setBasis] = useState<"time" | "fixed">("time");
+  const [dueDate, setDueDate] = useState(() => dateInDays(DEFAULT_TERMS_DAYS));
   const [generating, setGenerating] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const supabase = createClient();
 
@@ -74,6 +86,7 @@ export default function InvoicesTab({
         amount_pence: previewPence,
         basis,
         status: "draft",
+        due_date: dueDate || null,
       })
       .select()
       .single();
@@ -129,6 +142,20 @@ export default function InvoicesTab({
     }
   }
 
+  async function copyLink(invoice: Invoice) {
+    const link = `${window.location.origin}/invoice/${invoice.share_token}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopiedId(invoice.id);
+      setTimeout(
+        () => setCopiedId((id) => (id === invoice.id ? null : id)),
+        2000
+      );
+    } catch {
+      window.prompt("Copy this invoice link:", link);
+    }
+  }
+
   return (
     <div>
       <div className="card overflow-hidden">
@@ -149,40 +176,55 @@ export default function InvoicesTab({
         </div>
 
         <div className="p-4">
-          {basis === "time" ? (
-            <div className="flex items-end gap-4">
+          <div className="flex flex-wrap items-end gap-4">
+            {basis === "time" ? (
+              <>
+                <div>
+                  <label className="label" htmlFor="rate">
+                    £ per hour
+                  </label>
+                  <input
+                    id="rate"
+                    type="number"
+                    min="0"
+                    value={rate}
+                    onChange={(e) => setRate(e.target.value)}
+                    className="field mt-1 w-24"
+                  />
+                </div>
+                <p className="pb-2 text-sm text-slate-500">
+                  × {formatHours(unbilledMinutes)} unbilled
+                </p>
+              </>
+            ) : (
               <div>
-                <label className="label" htmlFor="rate">
-                  £ per hour
+                <label className="label" htmlFor="fixed">
+                  Amount (£)
                 </label>
                 <input
-                  id="rate"
+                  id="fixed"
                   type="number"
                   min="0"
-                  value={rate}
-                  onChange={(e) => setRate(e.target.value)}
-                  className="field mt-1 w-24"
+                  value={fixedAmount}
+                  onChange={(e) => setFixedAmount(e.target.value)}
+                  className="field mt-1 w-32"
                 />
               </div>
-              <p className="pb-2 text-sm text-slate-500">
-                × {formatHours(unbilledMinutes)} unbilled
-              </p>
-            </div>
-          ) : (
+            )}
+
             <div>
-              <label className="label" htmlFor="fixed">
-                Amount (£)
+              <label className="label" htmlFor="due">
+                Due
               </label>
               <input
-                id="fixed"
-                type="number"
-                min="0"
-                value={fixedAmount}
-                onChange={(e) => setFixedAmount(e.target.value)}
-                className="field mt-1 w-32"
+                id="due"
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="field mt-1 w-40"
               />
             </div>
-          )}
+          </div>
 
           <div className="mt-4 flex items-center justify-between border-t border-ink/10 pt-4">
             <div>
@@ -211,41 +253,74 @@ export default function InvoicesTab({
 
       {invoices.length > 0 ? (
         <ul className="mt-5 space-y-2">
-          {invoices.map((inv) => (
-            <li
-              key={inv.id}
-              className="card flex items-center justify-between gap-3 p-3 text-sm
-                         transition hover:shadow-lift"
-            >
-              <div>
-                <p className="font-mono text-base font-semibold">
-                  {formatGBP(inv.amount_pence)}
-                </p>
-                <p className="mt-0.5 text-xs text-slate-400">
-                  {inv.basis === "time" ? "Time-based" : "Fixed fee"} ·{" "}
-                  {formatDate(inv.created_at)}
-                </p>
-              </div>
-              {/* The control is the status indicator — showing a separate
-                  read-only pill next to it just said the same thing twice. */}
-              <select
-                value={inv.status}
-                onChange={(e) =>
-                  updateStatus(inv.id, e.target.value as InvoiceStatus)
-                }
-                aria-label="Invoice status"
-                className={`cursor-pointer rounded-full border px-2.5 py-1 text-xs
-                            font-medium capitalize transition focus:outline-none
-                            focus:ring-2 focus:ring-teal/25 ${STATUS_STYLE[inv.status]}`}
+          {invoices.map((inv) => {
+            const overdue = isOverdue(inv);
+            return (
+              <li
+                key={inv.id}
+                className="card p-3.5 text-sm transition hover:shadow-lift"
               >
-                {STATUSES.map((s) => (
-                  <option key={s} value={s} className="bg-white text-ink">
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </li>
-          ))}
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-mono text-base font-semibold">
+                      {formatGBP(inv.amount_pence)}
+                      <span className="ml-2 text-xs font-normal text-slate-400">
+                        #{inv.invoice_number}
+                      </span>
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-400">
+                      {inv.basis === "time" ? "Time-based" : "Fixed fee"} ·{" "}
+                      {formatDate(inv.created_at)}
+                      {inv.due_date && (
+                        <span className={overdue ? "font-medium text-red-600" : ""}>
+                          {" · "}
+                          {overdue ? "overdue " : "due "}
+                          {formatDate(inv.due_date)}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+
+                  {/* The control is the status indicator — showing a separate
+                      read-only pill next to it just said the same thing twice. */}
+                  <select
+                    value={inv.status}
+                    onChange={(e) =>
+                      updateStatus(inv.id, e.target.value as InvoiceStatus)
+                    }
+                    aria-label="Invoice status"
+                    className={`cursor-pointer rounded-full border px-2.5 py-1 text-xs
+                                font-medium capitalize transition focus:outline-none
+                                focus:ring-2 focus:ring-teal/25 ${STATUS_STYLE[inv.status]}`}
+                  >
+                    {STATUSES.map((s) => (
+                      <option key={s} value={s} className="bg-white text-ink">
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Drafts have no shareable link on purpose — the database
+                    function that serves the public page ignores them, so a
+                    link would 404 until the invoice is marked sent. */}
+                <div className="mt-2 text-xs">
+                  {inv.status === "draft" ? (
+                    <span className="text-slate-400">
+                      Mark as sent to get a link you can share.
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => copyLink(inv)}
+                      className="font-medium text-teal hover:underline"
+                    >
+                      {copiedId === inv.id ? "✓ Link copied" : "Copy invoice link"}
+                    </button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       ) : (
         <p className="mt-5 rounded-lg border border-dashed border-ink/15 px-4 py-6 text-center text-sm text-slate-400">
