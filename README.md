@@ -21,13 +21,15 @@ value, won value, win rate and a stage distribution bar.
 **Client detail** — clicking a card opens a slide-over drawer, with the board
 still visible behind it. The header carries the client's name, value and a stage
 switcher; a summary strip shows tracked time, unbilled time, total invoiced and
-total paid. Below that, four sections:
+total paid. Below that, four tabs:
 
-- **Notes** — free text, with ⌘/Ctrl+Enter to save
+- **Details** — company, email, phone and free-text notes, edited together and
+  saved as one form; the Save button enables only once something has changed
 - **Time** — a live timer, or log minutes by hand; entries are marked `billed`
   once invoiced
 - **Invoices** — generate from unbilled time at an hourly rate, or as a fixed
-  fee; status moves draft → sent → paid
+  fee; each gets a per-user invoice number and an optional due date, status
+  moves draft → sent → paid, and overdue ones are flagged in red
 - **Contracts** — write from a template, then share a signing link
 
 **Contract signing** — `/sign/[token]` is a public page. The client opens the
@@ -36,8 +38,17 @@ need no account: the page reaches the contract through two `security definer`
 Postgres functions that take the token as their only credential, so row-level
 security can stay closed to anonymous users.
 
+**Invoice sharing** — `/invoice/[token]` is the invoice equivalent of the
+signing page: a public, read-only view the client can open without an account,
+showing the amount, due date, issuer and paid/overdue status. It reaches the
+invoice through the same `security definer` pattern, and deliberately refuses to
+serve drafts — an unsent invoice stays invisible even to someone holding its
+link.
+
 **CSV import** — bring clients in from a spreadsheet or another CRM, mapping
-your columns onto name, value, stage and notes.
+your columns onto name, email, phone, company, value, stage and notes. The
+importer guesses the likely column for each field from its header, so a typical
+export needs little correcting by hand.
 
 ## Setting it up
 
@@ -54,9 +65,16 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-public-key
 **3. Create the tables.** Paste `supabase/schema.sql` into the Supabase SQL
 Editor and run it. It creates all four tables with their row-level security
 policies, and is safe to re-run against a project that already has some of them.
+It already includes the contact columns, invoice numbering and invoice sharing,
+so a fresh project needs nothing from `supabase/migrations/`.
 
-> The two contract-signing functions are **not** yet in that file — see
-> [Known gaps](#known-gaps). A fresh project needs them added by hand before
+> **Upgrading a project created before those existed?** Run
+> `supabase/migrations/001_contacts_and_invoice_sharing.sql` instead. It adds the
+> client contact columns, invoice numbers, due dates and share tokens to tables
+> that already hold data, which re-running `schema.sql` alone will not do.
+
+> Either way, the two contract-signing functions are **not** in `schema.sql` —
+> see [Known gaps](#known-gaps). A project needs them added by hand before
 > `/sign/[token]` will work.
 
 **4. Run it.**
@@ -74,7 +92,7 @@ Then open http://localhost:3000.
 src/
   middleware.ts              session refresh + /dashboard route guard
   lib/
-    types.ts                 row types for the four tables
+    types.ts                 row types for the four tables, plus isOverdue
     stages.ts                pipeline stages and their colour classes
     format.ts                money, duration and date formatting
     supabase/                browser and server clients
@@ -83,14 +101,18 @@ src/
     login/  signup/          auth screens
     auth/callback/           Supabase auth redirect handler
     sign/[token]/            public contract signing
+    invoice/[token]/         public read-only invoice view
     dashboard/
       page.tsx               server component; loads clients, renders shell
       dashboard-client.tsx   client-side state for the whole board
       pipeline-board.tsx     kanban columns, cards, drag and drop
       revenue-summary.tsx    headline figures + stage distribution
       client-detail-drawer.tsx  slide-over panel; loads all client records once
-      notes-tab.tsx  time-tab.tsx  invoices-tab.tsx  contracts-tab.tsx
+      details-tab.tsx  time-tab.tsx  invoices-tab.tsx  contracts-tab.tsx
       import-csv-modal.tsx
+supabase/
+  schema.sql                 full schema; run this on a new project
+  migrations/                incremental upgrades for existing projects
 ```
 
 The drawer fetches a client's time entries, invoices and contracts in a single
@@ -124,11 +146,12 @@ policies first.
 - **Dead components.** `time-tracker.tsx`, `contract-panel.tsx` and
   `invoice-panel.tsx` are unused, superseded by the `*-tab.tsx` versions, and
   still carry the old styling.
-- **Clients have no contact details** — no email or phone field, so the CSV
-  importer can't carry the most useful column either.
-- **Invoices are thin** — no invoice number, due date, line items, or overdue
-  tracking, and nothing to actually send the client. Contracts have a shareable
-  link; invoices have no equivalent.
+- **Invoices have no line items** — an invoice is still a single amount with a
+  basis, so a bill assembled from several rates, or itemised for the client,
+  can't be expressed.
+- **Nothing sends an invoice.** Status moves to `sent` and a link can be copied,
+  but the copying and sending are manual — there's no email step, and no
+  reminder when one goes overdue.
 - **Signing captures name and timestamp only** — no IP or user agent, which is
   the thin part of an e-signature's evidentiary value.
 - **No tests, and no ESLint config file**, so `npm run lint` prompts for setup
