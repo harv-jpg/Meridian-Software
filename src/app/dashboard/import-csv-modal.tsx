@@ -5,10 +5,13 @@ import Papa from "papaparse";
 import { createClient } from "@/lib/supabase/client";
 import type { ClientRecord, Stage } from "@/lib/types";
 
-type FieldKey = "name" | "value" | "stage" | "notes";
+type FieldKey = "name" | "email" | "phone" | "company" | "value" | "stage" | "notes";
 
 const FIELDS: { key: FieldKey; label: string; required: boolean }[] = [
   { key: "name", label: "Client name", required: true },
+  { key: "email", label: "Email", required: false },
+  { key: "phone", label: "Phone", required: false },
+  { key: "company", label: "Company", required: false },
   { key: "value", label: "Deal value", required: false },
   { key: "stage", label: "Status / stage", required: false },
   { key: "notes", label: "Notes", required: false },
@@ -54,6 +57,9 @@ export default function ImportCsvModal({
   const [rows, setRows] = useState<Record<string, string>[]>([]);
   const [mapping, setMapping] = useState<Record<FieldKey, string>>({
     name: "",
+    email: "",
+    phone: "",
+    company: "",
     value: "",
     stage: "",
     notes: "",
@@ -73,7 +79,10 @@ export default function ImportCsvModal({
         setHeaders(fields);
         setRows(results.data);
         setMapping({
-          name: guessColumn(fields, ["name", "client", "company"]),
+          name: guessColumn(fields, ["name", "client", "contact"]),
+          email: guessColumn(fields, ["email", "e-mail", "mail"]),
+          phone: guessColumn(fields, ["phone", "mobile", "tel", "number"]),
+          company: guessColumn(fields, ["company", "business", "organisation", "organization"]),
           value: guessColumn(fields, ["value", "amount", "price", "fee"]),
           stage: guessColumn(fields, ["stage", "status"]),
           notes: guessColumn(fields, ["note", "comment", "description"]),
@@ -95,6 +104,9 @@ export default function ImportCsvModal({
       .map((row) => ({
         user_id: userId,
         name: (row[mapping.name] || "").trim(),
+        email: mapping.email ? row[mapping.email]?.trim() || null : null,
+        phone: mapping.phone ? row[mapping.phone]?.trim() || null : null,
+        company: mapping.company ? row[mapping.company]?.trim() || null : null,
         value_pence: mapping.value ? parseValueToPence(row[mapping.value]) : null,
         stage: mapping.stage ? guessStage(row[mapping.stage]) : "lead",
         notes: mapping.notes ? row[mapping.notes] || null : null,
