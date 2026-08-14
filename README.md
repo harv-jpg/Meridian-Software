@@ -82,4 +82,56 @@ src/
     page.tsx                 landing
     login/  signup/          auth screens
     auth/callback/           Supabase auth redirect handler
-    sign/[token]/
+    sign/[token]/            public contract signing
+    dashboard/
+      page.tsx               server component; loads clients, renders shell
+      dashboard-client.tsx   client-side state for the whole board
+      pipeline-board.tsx     kanban columns, cards, drag and drop
+      revenue-summary.tsx    headline figures + stage distribution
+      client-detail-drawer.tsx  slide-over panel; loads all client records once
+      notes-tab.tsx  time-tab.tsx  invoices-tab.tsx  contracts-tab.tsx
+      import-csv-modal.tsx
+```
+
+The drawer fetches a client's time entries, invoices and contracts in a single
+parallel load and passes them down, so switching sections is instant and the
+figures stay consistent between them.
+
+## Conventions worth knowing
+
+**Money is stored as integer pence.** Never floats — `value_pence`,
+`amount_pence`. Format it with the helpers in `src/lib/format.ts` rather than
+inline, so thousands separators stay consistent.
+
+**Tailwind class strings must appear literally in source.** Tailwind scans
+files as text, so `bg-stage-${key}` will never be generated. That's why
+`src/lib/stages.ts` writes every class out in full — and why `src/lib` is in the
+`content` globs in `tailwind.config.ts`.
+
+**Every table needs a policy for every verb the app uses.** With RLS enabled, an
+operation with no matching policy does not error — it silently affects zero
+rows. A missing `UPDATE` policy on `time_entries` once meant invoiced hours were
+never marked as billed, so every subsequent invoice charged for them again, with
+no error anywhere. If a write appears to succeed but nothing changes, check the
+policies first.
+
+## Known gaps
+
+- **`schema.sql` doesn't define the two signing functions.**
+  `get_contract_by_token` and `sign_contract` exist in the live database but
+  their bodies were never captured into the repo, so the file can't rebuild a
+  project from scratch.
+- **Dead components.** `time-tracker.tsx`, `contract-panel.tsx` and
+  `invoice-panel.tsx` are unused, superseded by the `*-tab.tsx` versions, and
+  still carry the old styling.
+- **Clients have no contact details** — no email or phone field, so the CSV
+  importer can't carry the most useful column either.
+- **Invoices are thin** — no invoice number, due date, line items, or overdue
+  tracking, and nothing to actually send the client. Contracts have a shareable
+  link; invoices have no equivalent.
+- **Signing captures name and timestamp only** — no IP or user agent, which is
+  the thin part of an e-signature's evidentiary value.
+- **No tests, and no ESLint config file**, so `npm run lint` prompts for setup
+  on first run.
+- **No Stripe, and no AI features** — both were always planned to come after the
+  core CRM worked.
