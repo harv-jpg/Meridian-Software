@@ -82,10 +82,10 @@ export default function PipelineBoard({
     }
   }
 
-  function handleNotesSaved(notes: string) {
+  function handleClientSaved(fields: Partial<ClientRecord>) {
     if (!selectedId) return;
     setClients((prev) =>
-      prev.map((c) => (c.id === selectedId ? { ...c, notes } : c))
+      prev.map((c) => (c.id === selectedId ? { ...c, ...fields } : c))
     );
   }
 
@@ -135,6 +135,7 @@ export default function PipelineBoard({
         </button>
         {error && <p className="w-full text-sm text-red-600">{error}</p>}
       </form>
+
       {/* Dragging relies on the HTML5 drag-and-drop API, which never fires on
           touch devices. The drawer's stage switcher is the equivalent there,
           so point to it rather than leaving a dead gesture. */}
@@ -281,7 +282,7 @@ export default function PipelineBoard({
           client={selectedClient}
           userId={userId}
           onClose={() => setSelectedId(null)}
-          onNotesSaved={handleNotesSaved}
+          onClientSaved={handleClientSaved}
           onStageChange={handleStageChange}
         />
       )}
