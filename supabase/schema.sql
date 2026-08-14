@@ -16,6 +16,9 @@ create table if not exists public.clients (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   name text not null,
+  email text,
+  phone text,
+  company text,
   stage text not null default 'lead' check (stage in ('lead', 'proposal_sent', 'negotiating', 'won', 'lost')),
   value_pence integer, -- store money as integer pence to avoid float rounding issues
   notes text,
@@ -24,13 +27,18 @@ create table if not exists public.clients (
 );
 
 -- Defined before time_entries, which carries a foreign key to it.
+-- `share_token` is the unguessable value in the public /invoice/[token] URL,
+-- and `invoice_number` is assigned per user by the trigger further down.
 create table if not exists public.invoices (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   client_id uuid not null references public.clients(id) on delete cascade,
+  invoice_number integer,
   amount_pence integer not null,
   basis text not null check (basis in ('time', 'fixed')),
   status text not null default 'draft' check (status in ('draft', 'sent', 'paid')),
+  due_date date,
+  share_token uuid not null unique default gen_random_uuid(),
   created_at timestamptz not null default now()
 );
 
@@ -173,6 +181,82 @@ create index if not exists invoices_client_id_idx on public.invoices (client_id)
 create index if not exists contracts_client_id_idx on public.contracts (client_id);
 
 -- ---------------------------------------------------------------------------
+-- Invoice numbering
+-- ---------------------------------------------------------------------------
+-- Sequential per freelancer, so numbering doesn't jump around or leak how many
+-- other users exist.
+--
+-- Two invoices created in the same instant could in principle collide here; at
+-- one user raising invoices by hand that is not a real risk, and the fix (a
+-- per-user counter row with a lock) is not worth the complexity yet.
+
+create or replace function public.assign_invoice_number()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.invoice_number is null then
+    select coalesce(max(invoice_number), 0) + 1
+      into new.invoice_number
+      from public.invoices
+     where user_id = new.user_id;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists invoices_assign_number on public.invoices;
+create trigger invoices_assign_number
+  before insert on public.invoices
+  for each row execute function public.assign_invoice_number();
+
+-- ---------------------------------------------------------------------------
+-- Public invoice view
+-- ---------------------------------------------------------------------------
+-- Same shape as contract signing below: the client has no account, so RLS
+-- blocks them from `invoices` entirely. This function is the only way in, it
+-- takes the token as its sole credential, and returns just the fields the
+-- invoice page displays.
+--
+-- Drafts are deliberately excluded — an unsent invoice must not be reachable
+-- even by someone holding its link.
+
+create or replace function public.get_invoice_by_token(p_token uuid)
+returns table (
+  invoice_number integer,
+  amount_pence integer,
+  basis text,
+  status text,
+  due_date date,
+  created_at timestamptz,
+  client_name text,
+  issuer_email text
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select i.invoice_number,
+         i.amount_pence,
+         i.basis,
+         i.status,
+         i.due_date,
+         i.created_at,
+         c.name,
+         u.email::text
+    from public.invoices i
+    join public.clients c on c.id = i.client_id
+    join auth.users u on u.id = i.user_id
+   where i.share_token = p_token
+     and i.status <> 'draft';
+$$;
+
+grant execute on function public.get_invoice_by_token(uuid) to anon, authenticated;
+
+-- ---------------------------------------------------------------------------
 -- Public contract signing
 -- ---------------------------------------------------------------------------
 -- The /sign/[token] page is visited by the *client*, who has no account and is
@@ -196,4 +280,3 @@ create index if not exists contracts_client_id_idx on public.contracts (client_i
 --     and p.proname in ('get_contract_by_token', 'sign_contract');
 --
 -- Until then, this file cannot rebuild a project from scratch on its own.
-
