@@ -18,13 +18,20 @@ Negotiating → Won/Lost). Cards are draggable between columns, and each column
 shows its count and total value. A summary strip above the board gives pipeline
 value, won value, win rate and a stage distribution bar.
 
+**Follow-ups** — a client can carry a date you next intend to chase them. Once
+that day arrives the card flags itself, and a counter beside the client total
+filters the board down to only those, so "who haven't I chased" has an answer
+without scanning five columns. It is a plain date the board reads — there is no
+scheduler and nothing runs in the background.
+
 **Client detail** — clicking a card opens a slide-over drawer, with the board
 still visible behind it. The header carries the client's name, value and a stage
 switcher; a summary strip shows tracked time, unbilled time, total invoiced and
 total paid. Below that, four tabs:
 
-- **Details** — company, email, phone and free-text notes, edited together and
-  saved as one form; the Save button enables only once something has changed
+- **Details** — company, email, phone, a follow-up date and free-text notes,
+  edited together and saved as one form; the Save button enables only once
+  something has changed
 - **Time** — a live timer, or log minutes by hand; entries are marked `billed`
   once invoiced
 - **Invoices** — generate from unbilled time at an hourly rate, or as a fixed
