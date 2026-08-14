@@ -288,6 +288,7 @@ as $function$
   select id, title, body, status, signed_name, signed_at
   from public.contracts
   where sign_token = p_token
+    and status <> 'draft'
   limit 1;
 $function$;
 
