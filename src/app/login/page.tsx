@@ -37,11 +37,11 @@ export default function LoginPage() {
     <main className="flex min-h-screen items-center justify-center px-6">
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-sm rounded border border-ink/10 bg-white p-8"
+        className="card w-full max-w-sm p-8"
       >
         <h1 className="text-xl font-semibold">Log in</h1>
 
-        <label className="mt-6 block text-xs font-medium uppercase tracking-wide text-slate-500">
+        <label className="label mt-6">
           Email
         </label>
         <input
@@ -49,10 +49,10 @@ export default function LoginPage() {
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="mt-2 w-full rounded border border-ink/15 px-3 py-2 text-sm"
+          className="field mt-1"
         />
 
-        <label className="mt-4 block text-xs font-medium uppercase tracking-wide text-slate-500">
+        <label className="label mt-4">
           Password
         </label>
         <input
@@ -60,7 +60,7 @@ export default function LoginPage() {
           required
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="mt-2 w-full rounded border border-ink/15 px-3 py-2 text-sm"
+          className="field mt-1"
         />
 
         {status === "error" && (
@@ -70,7 +70,7 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={status === "loading"}
-          className="mt-6 w-full rounded bg-ink py-2.5 text-sm font-semibold text-paper disabled:opacity-60"
+          className="btn-primary mt-6 w-full"
         >
           {status === "loading" ? "Logging in…" : "Log in"}
         </button>

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { Contract, ContractStatus } from "@/lib/types";
 import { formatDate } from "@/lib/format";
 import { sendByEmail } from "@/lib/send";
+import { useFeedback } from "./feedback";
 
 const TEMPLATE = `This is a simple working agreement between [Your Name] and [Client Name] for [brief description of the work].
 
@@ -45,6 +46,7 @@ export default function ContractsTab({
   const [sendingId, setSendingId] = useState<string | null>(null);
 
   const supabase = createClient();
+  const { notify, confirm } = useFeedback();
 
   async function createContract() {
     if (!title.trim()) return;
@@ -65,7 +67,7 @@ export default function ContractsTab({
     setCreating(false);
 
     if (error || !data) {
-      alert("Could not create the contract — please try again.");
+      notify("Could not create the contract — please try again.", "error");
       return;
     }
 
@@ -86,7 +88,7 @@ export default function ContractsTab({
       .eq("id", contractId);
     if (error) {
       setContracts(previous);
-      alert("Could not update the contract — please try again.");
+      notify("Could not update the contract — please try again.", "error");
     }
   }
 
@@ -98,6 +100,7 @@ export default function ContractsTab({
       setCopiedId(contract.id);
       setTimeout(() => setCopiedId((id) => (id === contract.id ? null : id)), 2000);
     } catch {
+      // Last resort when the Clipboard API is unavailable.
       window.prompt("Copy this signing link:", link);
     }
   }
@@ -106,9 +109,11 @@ export default function ContractsTab({
     if (!clientEmail) return;
     // Sending leaves the app and cannot be taken back, so name the recipient
     // and make the user agree to it first.
-    const ok = window.confirm(
-      `Email "${contract.title}" to ${clientName} at ${clientEmail} for signing?`
-    );
+    const ok = await confirm({
+      title: "Send this contract for signing?",
+      body: `"${contract.title}" to ${clientName} at ${clientEmail}. This cannot be unsent.`,
+      confirmLabel: "Send it",
+    });
     if (!ok) return;
 
     setSendingId(contract.id);
@@ -116,14 +121,14 @@ export default function ContractsTab({
     setSendingId(null);
 
     if (result.sent) {
-      alert(`Sent to ${result.to}.`);
+      notify(`Sent to ${result.to}.`, "success");
     } else if (!result.configured) {
-      alert(
-        "Email hasn't been set up on this deployment, so nothing was sent. " +
-          "Use Copy signing link instead, or add RESEND_API_KEY and EMAIL_FROM."
+      notify(
+        "Email isn't set up on this deployment, so nothing was sent. Copy the link instead.",
+        "error"
       );
     } else {
-      alert(result.error ?? "Could not send.");
+      notify(result.error ?? "Could not send.", "error");
     }
   }
 

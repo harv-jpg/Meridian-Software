@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { ClientRecord } from "@/lib/types";
 import { isFollowUpDue, todayISO } from "@/lib/types";
 import { formatDate } from "@/lib/format";
+import { useFeedback } from "./feedback";
 
 type Draft = {
   email: string;
@@ -53,6 +54,7 @@ export default function DetailsTab({
   const [saving, setSaving] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
   const supabase = createClient();
+  const { notify } = useFeedback();
 
   const saved = draftFrom(client);
   const dirty =
@@ -99,7 +101,7 @@ export default function DetailsTab({
     setSaving(false);
 
     if (error) {
-      alert("Could not save — please try again.");
+      notify("Could not save — please try again.", "error");
       return;
     }
     onSaved(fields);

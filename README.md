@@ -70,7 +70,8 @@ invoice. Without them an invoice states an amount; with them it is a document a
 bookkeeper can file.
 
 **Archiving** — finishing with a client archives them rather than deleting.
-They leave the board and their time, invoices and contracts are kept. Permanent
+They leave the board and their time, invoices and contracts are kept; the
+Archive page lists them and restores one to the stage it left. Permanent
 deletion stays available only while a client has none of those attached, since
 the cascade would otherwise destroy records you are expected to keep.
 
@@ -146,6 +147,8 @@ src/
       client-detail-drawer.tsx  slide-over panel; loads all client records once
       details-tab.tsx  time-tab.tsx  invoices-tab.tsx  contracts-tab.tsx
       needs-attention.tsx      overdue invoices + due follow-ups
+      feedback.tsx             toasts and confirmations
+      archive/                 archived clients, and restoring them
       settings/                your business details, VAT and payment info
       import-csv-modal.tsx
 supabase/
@@ -163,6 +166,12 @@ figures stay consistent between them.
 the line items and `vat_rate_bp` the rate in basis points (2000 = 20%). Tax and
 gross are computed from those two by `src/lib/invoice.ts`, so a third column
 cannot fall out of step with the other two.
+
+**No native browser dialogs.** `alert()` and `confirm()` freeze the page, cannot
+be styled, and look identical to a browser permissions prompt. Use `notify` and
+`confirm` from `useFeedback()` instead. The two surviving `window.prompt` calls
+are deliberate: they are the fallback when the Clipboard API is unavailable,
+where selectable text beats a toast.
 
 **Money is stored as integer pence.** Never floats — `value_pence`,
 `amount_pence`. Format it with the helpers in `src/lib/format.ts` rather than

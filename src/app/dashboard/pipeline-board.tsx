@@ -7,6 +7,7 @@ import { isFollowUpDue } from "@/lib/types";
 import { STAGES } from "@/lib/stages";
 import { formatGBP, formatGBPShort } from "@/lib/format";
 import ClientDetailDrawer from "./client-detail-drawer";
+import { useFeedback } from "./feedback";
 
 export default function PipelineBoard({
   clients,
@@ -36,6 +37,7 @@ export default function PipelineBoard({
   const [dragOverStage, setDragOverStage] = useState<Stage | null>(null);
 
   const supabase = createClient();
+  const { notify, confirm } = useFeedback();
   const selectedClient = clients.find((c) => c.id === selectedId) ?? null;
 
   async function handleAdd(e: React.FormEvent) {
@@ -75,7 +77,7 @@ export default function PipelineBoard({
       .eq("id", clientId);
     if (error) {
       setClients(previous);
-      alert("Could not update stage — please try again.");
+      notify("Could not update stage — please try again.", "error");
     }
   }
 
@@ -85,10 +87,11 @@ export default function PipelineBoard({
   // of record value attached.
   async function handleArchive(clientId: string) {
     const client = clients.find((c) => c.id === clientId);
-    const confirmed = window.confirm(
-      `Archive ${client?.name ?? "this client"}? They leave the board but their ` +
-        "time, invoices and contracts are kept."
-    );
+    const confirmed = await confirm({
+      title: `Archive ${client?.name ?? "this client"}?`,
+      body: "They leave the board, but their time, invoices and contracts are kept. You can restore them from the archive.",
+      confirmLabel: "Archive",
+    });
     if (!confirmed) return;
 
     const previous = clients;
@@ -100,7 +103,9 @@ export default function PipelineBoard({
       .eq("id", clientId);
     if (error) {
       setClients(previous);
-      alert("Could not archive — please try again.");
+      notify("Could not archive — please try again.", "error");
+    } else {
+      notify(`${client?.name ?? "Client"} archived.`, "success");
     }
   }
 

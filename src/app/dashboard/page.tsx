@@ -47,6 +47,9 @@ export default async function DashboardPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Link href="/dashboard/archive" className="btn-ghost">
+              Archive
+            </Link>
             <Link href="/dashboard/settings" className="btn-ghost">
               Business details
             </Link>

@@ -17,6 +17,7 @@ import DetailsTab from "./details-tab";
 import TimeTab from "./time-tab";
 import InvoicesTab from "./invoices-tab";
 import ContractsTab from "./contracts-tab";
+import { useFeedback } from "./feedback";
 
 type Tab = "details" | "time" | "invoices" | "contracts";
 
@@ -52,6 +53,7 @@ export default function ClientDetailDrawer({
   // Memoised so it is a stable dependency for the loading effect rather than
   // a new object on every render.
   const supabase = useMemo(() => createClient(), []);
+  const { notify, confirm } = useFeedback();
 
   // Everything the drawer shows is fetched once, here, rather than each tab
   // fetching on mount. Switching tabs used to mean a fresh round-trip and a
@@ -116,17 +118,20 @@ export default function ClientDetailDrawer({
     };
   }, [client.id, supabase]);
 
-  const requestClose = useCallback(() => {
+  const requestClose = useCallback(async () => {
     // The old modal closed on any backdrop click, which quietly discarded an
     // unsaved note. Ask instead.
     if (notesDirty) {
-      const ok = window.confirm(
-        "You have unsaved changes. Close anyway and lose them?"
-      );
+      const ok = await confirm({
+        title: "Close without saving?",
+        body: "Your changes to this client have not been saved yet.",
+        confirmLabel: "Discard changes",
+        destructive: true,
+      });
       if (!ok) return;
     }
     onClose();
-  }, [notesDirty, onClose]);
+  }, [notesDirty, onClose, confirm]);
 
   // Escape to close, and lock the page behind the drawer so the board does
   // not scroll under it.
@@ -163,7 +168,7 @@ export default function ClientDetailDrawer({
     setSavingStage(false);
     if (error) {
       onStageChange(previous);
-      alert("Could not change the stage — please try again.");
+      notify("Could not change the stage — please try again.", "error");
     }
   }
 
@@ -175,17 +180,20 @@ export default function ClientDetailDrawer({
     timeEntries.length > 0 || invoices.length > 0 || contracts.length > 0;
 
   async function deletePermanently() {
-    const ok = window.confirm(
-      `Delete ${client.name} permanently? There is nothing billed against them, ` +
-        "so nothing else is lost. This cannot be undone."
-    );
+    const ok = await confirm({
+      title: `Delete ${client.name} permanently?`,
+      body: "There is nothing billed against them, so nothing else is lost. This cannot be undone.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
     if (!ok) return;
 
     const { error } = await supabase.from("clients").delete().eq("id", client.id);
     if (error) {
-      alert("Could not delete — please try again.");
+      notify("Could not delete — please try again.", "error");
       return;
     }
+    notify(`${client.name} deleted.`, "success");
     onDeleted();
   }
 

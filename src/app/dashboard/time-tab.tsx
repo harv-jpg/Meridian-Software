@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { TimeEntry } from "@/lib/types";
 import { formatDate, formatDuration } from "@/lib/format";
+import { useFeedback } from "./feedback";
 
 function clockFace(totalSeconds: number) {
   const m = Math.floor(totalSeconds / 60);
@@ -31,6 +32,7 @@ export default function TimeTab({
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const supabase = createClient();
+  const { notify } = useFeedback();
 
   useEffect(() => {
     return () => {
@@ -73,7 +75,7 @@ export default function TimeTab({
     setSaving(false);
 
     if (error || !data) {
-      alert("Could not save that time entry — please try again.");
+      notify("Could not save that time entry — please try again.", "error");
       return;
     }
 
@@ -103,7 +105,7 @@ export default function TimeTab({
     const { error } = await supabase.from("time_entries").delete().eq("id", id);
     if (error) {
       setEntries(previous);
-      alert("Could not delete that entry — please try again.");
+      notify("Could not delete that entry — please try again.", "error");
     }
   }
 

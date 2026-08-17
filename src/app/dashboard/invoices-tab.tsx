@@ -16,6 +16,7 @@ import {
 } from "@/lib/invoice";
 import { formatDate, formatGBP, formatHours } from "@/lib/format";
 import { sendByEmail } from "@/lib/send";
+import { useFeedback } from "./feedback";
 
 const STATUS_STYLE: Record<InvoiceStatus, string> = {
   draft: "border-slate-300 bg-slate-100 text-slate-600",
@@ -74,6 +75,7 @@ export default function InvoicesTab({
   const [sendingId, setSendingId] = useState<string | null>(null);
 
   const supabase = createClient();
+  const { notify, confirm } = useFeedback();
 
   // Derived from the drawer's shared time entries, so logging time in the
   // Time tab updates this figure immediately.
@@ -108,7 +110,7 @@ export default function InvoicesTab({
 
   async function generateInvoice() {
     if (!previewPence || previewPence <= 0) {
-      alert("Enter a valid amount first.");
+      notify("Enter a valid amount first.", "error");
       return;
     }
     setGenerating(true);
@@ -129,7 +131,7 @@ export default function InvoicesTab({
 
     if (error || !invoice) {
       setGenerating(false);
-      alert("Could not create the invoice — please try again.");
+      notify("Could not create the invoice — please try again.", "error");
       return;
     }
 
@@ -173,9 +175,10 @@ export default function InvoicesTab({
       // would leave these hours unbilled and let the next invoice charge for
       // them a second time. Only mark them billed once rows really changed.
       if (billError || (billed ?? []).length === 0) {
-        alert(
+        notify(
           "Invoice created, but the tracked time could not be marked as billed — " +
-            "those hours are still showing as unbilled. Check before sending."
+            "those hours are still showing as unbilled. Check before sending.",
+          "error"
         );
       } else {
         const billedIds = new Set((billed ?? []).map((r) => r.id as string));
@@ -223,7 +226,7 @@ export default function InvoicesTab({
       .single();
 
     if (error || !data) {
-      alert("Could not add that line — please try again.");
+      notify("Could not add that line — please try again.", "error");
       return;
     }
     const next = [...items, data as InvoiceItem];
@@ -244,7 +247,7 @@ export default function InvoicesTab({
     if (error) {
       setItems(previous);
       syncTotal(item.invoice_id, previous);
-      alert("Could not remove that line — please try again.");
+      notify("Could not remove that line — please try again.", "error");
     }
   }
 
@@ -259,7 +262,7 @@ export default function InvoicesTab({
       .eq("id", invoiceId);
     if (error) {
       setInvoices(previous);
-      alert("Could not update the invoice — please try again.");
+      notify("Could not update the invoice — please try again.", "error");
     }
   }
 
@@ -273,6 +276,8 @@ export default function InvoicesTab({
         2000
       );
     } catch {
+      // Last resort when the Clipboard API is unavailable: a prompt at least
+      // gives selectable text, which a toast cannot.
       window.prompt("Copy this invoice link:", link);
     }
   }
@@ -281,9 +286,11 @@ export default function InvoicesTab({
     if (!clientEmail) return;
     // Sending leaves the app and cannot be taken back, so name the recipient
     // and make the user agree to it first.
-    const ok = window.confirm(
-      `Email invoice #${invoice.invoice_number} for ${formatGBP(grossPence(invoice.amount_pence, invoice.vat_rate_bp))} to ${clientName} at ${clientEmail}?`
-    );
+    const ok = await confirm({
+      title: `Email invoice #${invoice.invoice_number}?`,
+      body: `${formatGBP(grossPence(invoice.amount_pence, invoice.vat_rate_bp))} to ${clientName} at ${clientEmail}. This cannot be unsent.`,
+      confirmLabel: "Send it",
+    });
     if (!ok) return;
 
     setSendingId(invoice.id);
@@ -291,14 +298,14 @@ export default function InvoicesTab({
     setSendingId(null);
 
     if (result.sent) {
-      alert(`Sent to ${result.to}.`);
+      notify(`Sent to ${result.to}.`, "success");
     } else if (!result.configured) {
-      alert(
-        "Email hasn't been set up on this deployment, so nothing was sent. " +
-          "Use Copy invoice link instead, or add RESEND_API_KEY and EMAIL_FROM."
+      notify(
+        "Email isn't set up on this deployment, so nothing was sent. Copy the link instead.",
+        "error"
       );
     } else {
-      alert(result.error ?? "Could not send.");
+      notify(result.error ?? "Could not send.", "error");
     }
   }
 
