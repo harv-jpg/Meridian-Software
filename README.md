@@ -15,7 +15,9 @@ is protected; signed-out visitors are redirected to `/login`. Sessions are kept
 alive by middleware, so login survives a page reload.
 
 **Pipeline** — a kanban board across five stages (Lead → Proposal Sent →
-Negotiating → Won/Lost). Cards are draggable between columns, and each column
+Negotiating → Won/Lost). Cards are draggable between columns on a pointer
+device — HTML5 drag-and-drop never fires on touch, so on a phone you change
+stage from inside the client panel instead, and the board says so. Each column
 shows its count and total value. A summary strip above the board gives pipeline
 value, won value, win rate and a stage distribution bar.
 

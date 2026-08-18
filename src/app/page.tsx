@@ -1,10 +1,13 @@
 import Link from "next/link";
 import { STAGES } from "@/lib/stages";
 
+// Every claim here has to be true of the app as built. The pipeline card used
+// to promise "drag a card to move it on", which the board itself contradicts
+// on a phone — HTML5 drag-and-drop never fires on touch.
 const FEATURES = [
   {
     title: "Pipeline",
-    body: "Every deal on one board, from first conversation to won. Drag a card to move it on.",
+    body: "Every deal on one board, from first conversation to won. Drag between columns on a desktop, or change stage with a tap on a phone.",
     accent: "bg-stage-lead",
   },
   {
@@ -14,13 +17,24 @@ const FEATURES = [
   },
   {
     title: "Invoices",
-    body: "Bill tracked hours at your rate, or raise a fixed fee. Hours already invoiced can't be charged twice.",
+    body: "Bill tracked hours at your rate or raise a fixed fee, itemised, numbered and dated, with VAT if you're registered. Hours already invoiced can't be charged twice.",
     accent: "bg-stage-proposal",
   },
   {
     title: "Contracts",
     body: "Write from a template and send a signing link. Your client signs in a browser — no account needed.",
     accent: "bg-stage-won",
+  },
+  {
+    title: "Getting paid",
+    body: "Your client opens a real invoice: your details, their address, what it's for and how to pay. Anything past its due date is waiting for you when you open the app.",
+    // Not bg-teal: that is the same hex as bg-stage-won on the Contracts card.
+    accent: "bg-ink",
+  },
+  {
+    title: "Nothing forgotten",
+    body: "Put a date on a client and they resurface when it arrives. Overdue invoices sit alongside them, so one list answers what needs you today.",
+    accent: "bg-stage-lost",
   },
 ];
 
