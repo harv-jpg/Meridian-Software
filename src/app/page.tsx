@@ -33,8 +33,15 @@ const FEATURES = [
   },
   {
     title: "Nothing forgotten",
-    body: "Put a date on a client and they resurface when it arrives. Overdue invoices sit alongside them, so one list answers what needs you today.",
+    body: "Put a date on a client and they resurface when it arrives. Overdue invoices sit alongside them, and any deal nobody has touched for three weeks flags itself — so one list answers what needs you today.",
     accent: "bg-stage-lost",
+  },
+  {
+    title: "Follow-ups, written",
+    body: "Ask for a draft and one is written from that client's own record — what's unbilled, what's unpaid, what you noted. It lands in a box you can edit. Nothing sends without you.",
+    // Its own colour: every other accent, `gold` included, is already a
+    // stage colour on one of the cards above.
+    accent: "bg-plum",
   },
 ];
 

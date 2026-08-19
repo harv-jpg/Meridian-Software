@@ -21,10 +21,18 @@ stage from inside the client panel instead, and the board says so. Each column
 shows its count and total value. A summary strip above the board gives pipeline
 value, won value, win rate and a stage distribution bar.
 
-**Needs attention** — the first thing on the dashboard: overdue invoices and
-due follow-ups in one list, each opening the client it belongs to, with the
-total outstanding past its due date along the bottom. It hides itself when
-there is nothing to do.
+**Needs attention** — the first thing on the dashboard: overdue invoices, due
+follow-ups and deals that have gone quiet in one list, each opening the client
+it belongs to, with the total outstanding past its due date along the bottom.
+It hides itself when there is nothing to do.
+
+**Quiet deals** — an open deal nobody has touched for three weeks is flagged on
+its card and listed in Needs attention, longest silence first. "Touched" means
+a write to the client row or an invoice raised against them; logging time is
+not counted, because the board would have to load every time entry to find out,
+so the flag errs towards saying a client is quieter than they are. A client
+with a follow-up date is never flagged — you have already decided when to chase
+them, and Follow-ups raises it on the day.
 
 **Follow-ups** — a client can carry a date you next intend to chase them. Once
 that day arrives the card flags itself, and a counter beside the client total
@@ -65,6 +73,19 @@ link.
 emailed to the client straight from the drawer, with the share link embedded
 and replies going to your own address. Without one the buttons say so and you
 copy the link instead — nothing else changes.
+
+**Drafting a follow-up** — with `ANTHROPIC_API_KEY` set, the Details tab can
+write a follow-up email to that client. What goes to the model is one client's
+own records and nothing else: their stage, value, your private notes on them,
+their unbilled work, unpaid and overdue invoices, and any contract sent but not
+signed. It is told to write only from that and to invent nothing. What comes
+back is a subject and a body in editable boxes, plus one line naming the fact
+the draft leans on. **Nothing is sent.** You copy it, or open it in your own
+mail client with the send button still unpressed. Without the key the panel
+says it isn't set up and nothing else changes.
+
+It writes from the record, not in your voice — matching how you actually write
+would mean reading your sent mail, which this app has no access to.
 
 **Business details** — your name, address, VAT number and rate, how to pay you
 and an invoice footer, set once at `/dashboard/settings` and applied to every
@@ -112,8 +133,10 @@ npm install
 npm run dev
 ```
 
-Optionally set `RESEND_API_KEY` and `EMAIL_FROM` to turn on email; see
-`.env.local.example`. Everything works without them.
+Two optional keys, both listed in `.env.local.example`. `RESEND_API_KEY` and
+`EMAIL_FROM` turn on email; `ANTHROPIC_API_KEY` turns on follow-up drafting.
+Everything else works without any of them, and the features that need them say
+so in place rather than failing.
 
 **Checks.** `npm test` runs the unit tests, `npm run lint` the linter, and
 `npm run build` type-checks as it compiles.
@@ -126,11 +149,12 @@ Then open http://localhost:3000.
 src/
   middleware.ts              session refresh + /dashboard route guard
   lib/
-    types.ts                 row types for the four tables, plus isOverdue
+    types.ts                 row types, plus isOverdue and the quiet-deal rules
     stages.ts                pipeline stages and their colour classes
     format.ts                money, duration and date formatting
     invoice.ts               line-item totals; mirrors the database trigger
     send.ts                  client wrapper around the email route
+    draft.ts                 client wrapper around the drafting route
     supabase/                browser and server clients
   app/
     page.tsx                 landing
@@ -139,6 +163,7 @@ src/
     reset-password/          choose a new password
     auth/callback/           Supabase auth redirect handler
     api/send/                emails an invoice or contract to the client
+    api/draft/               writes a follow-up email from one client's records
     sign/[token]/            public contract signing
     invoice/[token]/         public read-only invoice view
     dashboard/
@@ -148,7 +173,8 @@ src/
       revenue-summary.tsx    headline figures + stage distribution
       client-detail-drawer.tsx  slide-over panel; loads all client records once
       details-tab.tsx  time-tab.tsx  invoices-tab.tsx  contracts-tab.tsx
-      needs-attention.tsx      overdue invoices + due follow-ups
+      needs-attention.tsx      overdue invoices, due follow-ups, quiet deals
+      follow-up-draft.tsx      the drafting panel inside a client
       feedback.tsx             toasts and confirmations
       archive/                 archived clients, and restoring them
       settings/                your business details, VAT and payment info

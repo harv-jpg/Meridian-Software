@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import PipelineBoard from "./pipeline-board";
 import RevenueSummary from "./revenue-summary";
 import ImportCsvModal from "./import-csv-modal";
 import NeedsAttention from "./needs-attention";
-import { isFollowUpDue } from "@/lib/types";
+import { isFollowUpDue, isQuiet } from "@/lib/types";
 import type { ClientRecord, Invoice } from "@/lib/types";
 
 export default function DashboardClient({
@@ -28,6 +28,16 @@ export default function DashboardClient({
 
   const dueCount = clients.filter(isFollowUpDue).length;
 
+  // Computed once here rather than per card: the board would otherwise need
+  // the invoices too, only to work out a date it never displays.
+  const quietIds = useMemo(
+    () =>
+      new Set(
+        clients.filter((c) => isQuiet(c, initialInvoices)).map((c) => c.id)
+      ),
+    [clients, initialInvoices]
+  );
+
   // Clearing the last outstanding follow-up would otherwise leave the board
   // filtered to nothing with no obvious way back.
   if (onlyFollowUps && dueCount === 0) setOnlyFollowUps(false);
@@ -37,6 +47,7 @@ export default function DashboardClient({
       <NeedsAttention
         clients={clients}
         invoices={initialInvoices}
+        quietIds={quietIds}
         onOpenClient={setSelectedId}
       />
 
@@ -75,6 +86,7 @@ export default function DashboardClient({
         setClients={setClients}
         userId={userId}
         onlyFollowUps={onlyFollowUps}
+        quietIds={quietIds}
         selectedId={selectedId}
         setSelectedId={setSelectedId}
         defaultVatRateBp={defaultVatRateBp}

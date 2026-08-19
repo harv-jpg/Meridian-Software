@@ -1,23 +1,26 @@
 "use client";
 
-import { isFollowUpDue, isOverdue } from "@/lib/types";
+import { daysSince, isFollowUpDue, isOverdue, lastTouchedAt } from "@/lib/types";
 import type { ClientRecord, Invoice } from "@/lib/types";
 import { formatDate, formatGBP } from "@/lib/format";
 import { grossPence } from "@/lib/invoice";
 
 /**
- * The two questions a freelancer opens a CRM to answer — who owes me money,
- * and who haven't I chased — previously lived in different places: overdue
- * invoices inside a client drawer, follow-ups behind a board filter. This
- * puts both on the first screen.
+ * The three questions a freelancer opens a CRM to answer — who owes me money,
+ * who haven't I chased, and what has gone quiet — previously lived in
+ * different places, or nowhere at all. This puts all three on the first
+ * screen, most urgent first.
  */
 export default function NeedsAttention({
   clients,
   invoices,
+  quietIds,
   onOpenClient,
 }: {
   clients: ClientRecord[];
   invoices: Invoice[];
+  /** Ids of open deals nothing has happened on for weeks. */
+  quietIds: Set<string>;
   onOpenClient: (clientId: string) => void;
 }) {
   const clientsById = new Map(clients.map((c) => [c.id, c]));
@@ -30,7 +33,14 @@ export default function NeedsAttention({
     .filter(isFollowUpDue)
     .sort((a, b) => (a.follow_up_on ?? "").localeCompare(b.follow_up_on ?? ""));
 
-  if (overdue.length === 0 && followUps.length === 0) return null;
+  // Longest silence first — the deal you are closest to losing.
+  const quiet = clients
+    .filter((c) => quietIds.has(c.id))
+    .map((c) => ({ client: c, days: daysSince(lastTouchedAt(c, invoices)) }))
+    .sort((a, b) => b.days - a.days);
+
+  if (overdue.length === 0 && followUps.length === 0 && quiet.length === 0)
+    return null;
 
   // Gross, matching what the client was actually asked to pay.
   const overdueTotal = overdue.reduce(
@@ -48,7 +58,7 @@ export default function NeedsAttention({
           Needs attention
         </h2>
         <span className="font-mono text-xs text-slate-400">
-          {overdue.length + followUps.length}
+          {overdue.length + followUps.length + quiet.length}
         </span>
       </div>
 
@@ -96,6 +106,26 @@ export default function NeedsAttention({
               </span>
               <span className="shrink-0 text-xs text-slate-400">
                 {formatDate(client.follow_up_on)}
+              </span>
+              <span className="w-20 shrink-0" />
+            </button>
+          </li>
+        ))}
+
+        {quiet.map(({ client, days }) => (
+          <li key={client.id}>
+            <button
+              onClick={() => onOpenClient(client.id)}
+              className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm
+                         transition hover:bg-ink/[0.03]"
+            >
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-gold" />
+              <span className="min-w-0 flex-1 truncate">
+                <span className="font-medium">{client.name}</span>
+                <span className="ml-2 text-slate-500">has gone quiet</span>
+              </span>
+              <span className="shrink-0 text-xs text-slate-400">
+                {days} days
               </span>
               <span className="w-20 shrink-0" />
             </button>

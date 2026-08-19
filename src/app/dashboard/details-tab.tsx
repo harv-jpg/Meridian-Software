@@ -6,6 +6,7 @@ import type { ClientRecord } from "@/lib/types";
 import { isFollowUpDue, todayISO } from "@/lib/types";
 import { formatDate } from "@/lib/format";
 import { useFeedback } from "./feedback";
+import FollowUpDraft from "./follow-up-draft";
 
 type Draft = {
   email: string;
@@ -250,6 +251,12 @@ export default function DetailsTab({
           </p>
         )}
       </div>
+
+      <FollowUpDraft
+        clientId={client.id}
+        clientName={client.name}
+        clientEmail={client.email}
+      />
 
       <label className="label mt-5" htmlFor="client-notes">
         Notes

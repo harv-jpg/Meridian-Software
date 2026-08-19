@@ -15,6 +15,10 @@ const config: Config = {
         paper: "#F6F4EF",
         teal: "#1F8A70",
         gold: "#C9A227",
+        // Drafting only. Every other accent was already spoken for — `gold` is
+        // the same hex as `stage.proposal`, so reusing it would have given two
+        // landing-page cards the same bar.
+        plum: "#6E5B8B",
         // A full scale, not a single value. Defining `slate` as a bare string
         // replaces Tailwind's built-in scale, which silently voids every
         // `text-slate-500` in the app and flattens the whole type hierarchy.

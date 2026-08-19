@@ -14,6 +14,7 @@ export default function PipelineBoard({
   setClients,
   userId,
   onlyFollowUps = false,
+  quietIds,
   selectedId,
   setSelectedId,
   defaultVatRateBp,
@@ -23,6 +24,8 @@ export default function PipelineBoard({
   userId: string;
   /** When set, columns show only clients due a follow-up. */
   onlyFollowUps?: boolean;
+  /** Ids of open deals nothing has happened on for weeks. */
+  quietIds: Set<string>;
   /** Controlled by the dashboard so the attention strip can open a client. */
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
@@ -296,6 +299,19 @@ export default function PipelineBoard({
                       >
                         <span className="h-1 w-1 rounded-full bg-teal" />
                         Follow up
+                      </p>
+                    )}
+
+                    {/* Can never sit alongside the badge above: a client with
+                        a follow-up date is never counted as quiet. */}
+                    {quietIds.has(c.id) && (
+                      <p
+                        className="mt-2 inline-flex items-center gap-1 rounded-full bg-gold/10
+                                   px-2 py-0.5 text-[10px] font-semibold uppercase
+                                   tracking-wide text-gold"
+                      >
+                        <span className="h-1 w-1 rounded-full bg-gold" />
+                        Quiet
                       </p>
                     )}
                   </article>
