@@ -37,8 +37,9 @@ them, and Follow-ups raises it on the day.
 **Follow-ups** — a client can carry a date you next intend to chase them. Once
 that day arrives the card flags itself, and a counter beside the client total
 filters the board down to only those, so "who haven't I chased" has an answer
-without scanning five columns. It is a plain date the board reads — there is no
-scheduler and nothing runs in the background.
+without scanning five columns. It is a plain date the board reads; the nightly
+job below leaves it alone entirely, so a client you have already scheduled is
+never also nudged about.
 
 **Client detail** — clicking a card opens a slide-over drawer, with the board
 still visible behind it. The header carries the client's name, value and a stage
@@ -87,6 +88,29 @@ says it isn't set up and nothing else changes.
 It writes from the record, not in your voice — matching how you actually write
 would mean reading your sent mail, which this app has no access to.
 
+**Overnight drafting** — with `SUPABASE_SERVICE_ROLE_KEY` and `CRON_SECRET` set
+as well, a job runs each night at 05:00 UTC. It finds deals that have gone quiet
+and invoices past their due date, writes a follow-up for each, and parks it. You
+open the app to a "Waiting for you" strip above everything else, holding drafts
+that were written while you were not here.
+
+**Nothing is sent by the job.** There is no send button in that strip either —
+only Copy and a mailto, the same as everywhere else in the app. "Mark as sent"
+records what you did; it does not do it. Dismissing keeps the row, which is how
+the job knows not to write the same nudge again tomorrow.
+
+An overdue invoice outranks silence, so a client who is both late and quiet gets
+one email about the money rather than two about different things. Each account
+gets at most three drafts a night and each run at most fifty, so a large account
+cannot produce a surprising bill.
+
+This is the only part of the app that runs with nobody signed in, and so the
+only caller of the service-role Supabase client, which bypasses row-level
+security. Because RLS is not protecting those queries, the job does that work
+itself: every read is grouped by `user_id` and every row written carries the id
+it came from. `src/lib/supabase/service.ts` says so at the top, and it is worth
+keeping that way.
+
 **Business details** — your name, address, VAT number and rate, how to pay you
 and an invoice footer, set once at `/dashboard/settings` and applied to every
 invoice. Without them an invoice states an amount; with them it is a document a
@@ -116,7 +140,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-public-key
 ```
 
 **3. Create the tables.** Paste `supabase/schema.sql` into the Supabase SQL
-Editor and run it. It creates all four tables with their row-level security
+Editor and run it. It creates all seven tables with their row-level security
 policies, and is safe to re-run against a project that already has some of them.
 It already includes the contact columns, invoice numbering and invoice sharing,
 so a fresh project needs nothing from `supabase/migrations/`.
@@ -133,13 +157,30 @@ npm install
 npm run dev
 ```
 
-Two optional keys, both listed in `.env.local.example`. `RESEND_API_KEY` and
-`EMAIL_FROM` turn on email; `ANTHROPIC_API_KEY` turns on follow-up drafting.
-Everything else works without any of them, and the features that need them say
-so in place rather than failing.
+Optional keys, all listed in `.env.local.example`. `RESEND_API_KEY` and
+`EMAIL_FROM` turn on email; `ANTHROPIC_API_KEY` turns on follow-up drafting;
+adding `SUPABASE_SERVICE_ROLE_KEY` and `CRON_SECRET` on top turns on the
+nightly job that drafts before you arrive. Everything else works without any of
+them, and the features that need them say so in place rather than failing.
 
 **Checks.** `npm test` runs the unit tests, `npm run lint` the linter, and
 `npm run build` type-checks as it compiles.
+
+**5. The nightly job, if you want it.** `vercel.json` declares the schedule, but
+crons only fire on production deployments, so nothing happens locally or on a
+preview. Set `ANTHROPIC_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY` and `CRON_SECRET`
+in the Vercel project's environment variables — Vercel sends `CRON_SECRET` back
+as a bearer token, and the route refuses anything without it, so the endpoint
+cannot be triggered by whoever finds the URL. To try it before waiting for 05:00:
+
+```bash
+curl -X POST https://your-app.vercel.app/api/cron/nudges \
+  -H "Authorization: Bearer $CRON_SECRET"
+```
+
+It answers with how many clients it considered and how many drafts it wrote.
+With any of the three keys missing it answers 501 and does nothing, so a
+half-configured deployment reads as unconfigured rather than broken.
 
 Then open http://localhost:3000.
 
@@ -155,7 +196,10 @@ src/
     invoice.ts               line-item totals; mirrors the database trigger
     send.ts                  client wrapper around the email route
     draft.ts                 client wrapper around the drafting route
-    supabase/                browser and server clients
+    drafting.ts              the prompt and record format, shared by both callers
+    nudges.ts                who gets a draft tonight, and the caps on a run
+    supabase/                browser and server clients, plus the service-role
+                             client used only by the nightly job
   app/
     page.tsx                 landing
     login/  signup/          auth screens
@@ -164,6 +208,7 @@ src/
     auth/callback/           Supabase auth redirect handler
     api/send/                emails an invoice or contract to the client
     api/draft/               writes a follow-up email from one client's records
+    api/cron/nudges/         nightly: finds who needs chasing, parks a draft
     sign/[token]/            public contract signing
     invoice/[token]/         public read-only invoice view
     dashboard/
@@ -175,10 +220,12 @@ src/
       details-tab.tsx  time-tab.tsx  invoices-tab.tsx  contracts-tab.tsx
       needs-attention.tsx      overdue invoices, due follow-ups, quiet deals
       follow-up-draft.tsx      the drafting panel inside a client
+      waiting-drafts.tsx       drafts the nightly job left for you
       feedback.tsx             toasts and confirmations
       archive/                 archived clients, and restoring them
       settings/                your business details, VAT and payment info
       import-csv-modal.tsx
+vercel.json                  the nightly cron schedule
 supabase/
   schema.sql                 full schema; run this on a new project
   migrations/                incremental upgrades for existing projects

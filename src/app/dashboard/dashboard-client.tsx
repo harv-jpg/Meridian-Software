@@ -5,21 +5,26 @@ import PipelineBoard from "./pipeline-board";
 import RevenueSummary from "./revenue-summary";
 import ImportCsvModal from "./import-csv-modal";
 import NeedsAttention from "./needs-attention";
+import WaitingDrafts from "./waiting-drafts";
 import { isFollowUpDue, isQuiet } from "@/lib/types";
-import type { ClientRecord, Invoice } from "@/lib/types";
+import type { ClientRecord, Invoice, Nudge } from "@/lib/types";
 
 export default function DashboardClient({
   initialClients,
   initialInvoices,
+  initialNudges,
   defaultVatRateBp,
   userId,
 }: {
   initialClients: ClientRecord[];
   initialInvoices: Invoice[];
+  /** Drafts the nightly job parked. Empty unless that job is configured. */
+  initialNudges: Nudge[];
   defaultVatRateBp: number;
   userId: string;
 }) {
   const [clients, setClients] = useState<ClientRecord[]>(initialClients);
+  const [nudges, setNudges] = useState<Nudge[]>(initialNudges);
   const [showImport, setShowImport] = useState(false);
   const [onlyFollowUps, setOnlyFollowUps] = useState(false);
   // Selection lives here rather than in the board, so the attention strip can
@@ -44,6 +49,12 @@ export default function DashboardClient({
 
   return (
     <div>
+      <WaitingDrafts
+        nudges={nudges}
+        clients={clients}
+        onResolved={(id) => setNudges((prev) => prev.filter((n) => n.id !== id))}
+      />
+
       <NeedsAttention
         clients={clients}
         invoices={initialInvoices}

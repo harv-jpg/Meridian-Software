@@ -106,6 +106,31 @@ create table if not exists public.business_profiles (
   updated_at timestamptz not null default now()
 );
 
+-- Follow-up emails written by the nightly job and parked for their owner.
+-- Nothing sends one of these: a nudge sits until the person who owns it reads
+-- it, edits it and sends it themselves, or dismisses it.
+create table if not exists public.nudges (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  client_id uuid not null references public.clients(id) on delete cascade,
+
+  -- Why it was written. 'silence' means the deal went quiet; 'payment' means
+  -- an invoice passed its due date.
+  kind text not null check (kind in ('silence', 'payment')),
+
+  subject text not null,
+  body text not null,
+  -- One line naming the fact the draft leans on. Shown above it, for you.
+  angle text not null,
+
+  -- Dismissing keeps the row, which is how the job knows not to write the
+  -- same nudge again tomorrow.
+  status text not null default 'waiting' check (status in ('waiting', 'sent', 'dismissed')),
+  resolved_at timestamptz,
+
+  created_at timestamptz not null default now()
+);
+
 -- ---------------------------------------------------------------------------
 -- Row Level Security
 -- ---------------------------------------------------------------------------
@@ -119,6 +144,7 @@ alter table public.invoices enable row level security;
 alter table public.contracts enable row level security;
 alter table public.invoice_items enable row level security;
 alter table public.business_profiles enable row level security;
+alter table public.nudges enable row level security;
 
 -- clients
 drop policy if exists "Users can view their own clients" on public.clients;
@@ -202,6 +228,24 @@ create policy "Users can insert their own business profile"
 drop policy if exists "Users can update their own business profile" on public.business_profiles;
 create policy "Users can update their own business profile"
   on public.business_profiles for update
+  using (auth.uid() = user_id);
+
+-- nudges (no insert policy, deliberately: these are written by the nightly job
+-- using the service role, which bypasses RLS. Nothing signed in as a user has
+-- any business creating one, so the service role is the only way in.)
+drop policy if exists "Users can view their own nudges" on public.nudges;
+create policy "Users can view their own nudges"
+  on public.nudges for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can update their own nudges" on public.nudges;
+create policy "Users can update their own nudges"
+  on public.nudges for update
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own nudges" on public.nudges;
+create policy "Users can delete their own nudges"
+  on public.nudges for delete
   using (auth.uid() = user_id);
 
 -- invoice_items
@@ -288,6 +332,16 @@ create trigger business_profiles_touch_updated_at
 create index if not exists clients_follow_up_on_idx
   on public.clients (user_id, follow_up_on)
   where follow_up_on is not null;
+
+-- The dashboard asks for one user's waiting nudges on every load.
+create index if not exists nudges_user_status_idx
+  on public.nudges (user_id, status, created_at desc);
+
+-- The nightly job asks "is there already an unresolved nudge for this client?"
+-- once per candidate, which is the hot path of the whole run.
+create index if not exists nudges_client_waiting_idx
+  on public.nudges (client_id, kind)
+  where status = 'waiting';
 
 -- ---------------------------------------------------------------------------
 -- Invoice numbering

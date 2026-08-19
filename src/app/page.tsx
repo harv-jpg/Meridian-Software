@@ -38,7 +38,7 @@ const FEATURES = [
   },
   {
     title: "Follow-ups, written",
-    body: "Ask for a draft and one is written from that client's own record — what's unbilled, what's unpaid, what you noted. It lands in a box you can edit. Nothing sends without you.",
+    body: "Deals going quiet and invoices going late are drafted overnight, waiting when you open the app. Or ask for one on the spot. Either way it lands in a box you can edit — nothing sends without you.",
     // Its own colour: every other accent, `gold` included, is already a
     // stage colour on one of the cards above.
     accent: "bg-plum",

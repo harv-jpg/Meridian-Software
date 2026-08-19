@@ -5,6 +5,10 @@ export type ContractStatus = "draft" | "sent" | "signed";
 
 export interface ClientRecord {
   id: string;
+  /** Who owns this row. Redundant everywhere row-level security applies, and
+   *  load-bearing in the one place it does not: the nightly job runs with no
+   *  session, so it groups and filters by this itself. */
+  user_id: string;
   name: string;
   email: string | null;
   phone: string | null;
@@ -78,6 +82,30 @@ export interface Contract {
   status: ContractStatus;
   signed_name: string | null;
   signed_at: string | null;
+  created_at: string;
+}
+
+/** Why a nudge was written. */
+export type NudgeKind = "silence" | "payment";
+/** `waiting` until its owner sends or dismisses it. */
+export type NudgeStatus = "waiting" | "sent" | "dismissed";
+
+/**
+ * A follow-up email written by the nightly job and parked for its owner.
+ *
+ * Nothing sends one of these. It sits until the person who owns it reads it,
+ * edits it and sends it themselves, or dismisses it.
+ */
+export interface Nudge {
+  id: string;
+  client_id: string;
+  kind: NudgeKind;
+  subject: string;
+  body: string;
+  /** One line naming the fact the draft leans on. For the sender only. */
+  angle: string;
+  status: NudgeStatus;
+  resolved_at: string | null;
   created_at: string;
 }
 

@@ -3,7 +3,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "./logout-button";
 import DashboardClient from "./dashboard-client";
-import type { ClientRecord, Invoice } from "@/lib/types";
+import type { ClientRecord, Invoice, Nudge } from "@/lib/types";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -17,19 +17,27 @@ export default async function DashboardPage() {
 
   // Invoices are loaded here as well as in the drawer, because the attention
   // strip needs to know what is overdue before any client is opened.
-  const [{ data: clients }, { data: invoices }, { data: profile }] = await Promise.all([
-    supabase
-      .from("clients")
-      .select("*")
-      .is("archived_at", null)
-      .order("created_at", { ascending: false }),
-    supabase.from("invoices").select("*").order("due_date", { ascending: true }),
-    supabase
-      .from("business_profiles")
-      .select("default_vat_rate_bp")
-      .eq("user_id", user.id)
-      .maybeSingle(),
-  ]);
+  const [{ data: clients }, { data: invoices }, { data: profile }, { data: nudges }] =
+    await Promise.all([
+      supabase
+        .from("clients")
+        .select("*")
+        .is("archived_at", null)
+        .order("created_at", { ascending: false }),
+      supabase.from("invoices").select("*").order("due_date", { ascending: true }),
+      supabase
+        .from("business_profiles")
+        .select("default_vat_rate_bp")
+        .eq("user_id", user.id)
+        .maybeSingle(),
+      // Written overnight, if the scheduled job is configured. Without it this
+      // is simply always empty and the strip never appears.
+      supabase
+        .from("nudges")
+        .select("*")
+        .eq("status", "waiting")
+        .order("created_at", { ascending: false }),
+    ]);
 
   return (
     <main className="min-h-screen">
@@ -62,6 +70,7 @@ export default async function DashboardPage() {
         <DashboardClient
           initialClients={(clients ?? []) as ClientRecord[]}
           initialInvoices={(invoices ?? []) as Invoice[]}
+          initialNudges={(nudges ?? []) as Nudge[]}
           defaultVatRateBp={profile?.default_vat_rate_bp ?? 0}
           userId={user.id}
         />
