@@ -17,8 +17,13 @@ export default async function DashboardPage() {
 
   // Invoices are loaded here as well as in the drawer, because the attention
   // strip needs to know what is overdue before any client is opened.
-  const [{ data: clients }, { data: invoices }, { data: profile }, { data: nudges }] =
-    await Promise.all([
+  const [
+    { data: clients },
+    { data: invoices },
+    { data: profile },
+    { data: nudges },
+    { data: connection },
+  ] = await Promise.all([
       supabase
         .from("clients")
         .select("*")
@@ -37,6 +42,9 @@ export default async function DashboardPage() {
         .select("*")
         .eq("status", "waiting")
         .order("created_at", { ascending: false }),
+      // Only whether one exists — the tokens are unreachable from here by
+      // design, and the drawer just needs to tell two empty states apart.
+      supabase.rpc("get_email_connection").maybeSingle(),
     ]);
 
   return (
@@ -72,6 +80,7 @@ export default async function DashboardPage() {
           initialInvoices={(invoices ?? []) as Invoice[]}
           initialNudges={(nudges ?? []) as Nudge[]}
           defaultVatRateBp={profile?.default_vat_rate_bp ?? 0}
+          hasInbox={connection !== null}
           userId={user.id}
         />
       </div>

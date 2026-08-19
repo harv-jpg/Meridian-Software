@@ -2,9 +2,14 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import SettingsForm from "./settings-form";
-import type { BusinessProfile } from "@/lib/types";
+import InboxCard from "./inbox-card";
+import type { BusinessProfile, EmailConnection } from "@/lib/types";
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ inbox?: string }>;
+}) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -14,11 +19,17 @@ export default async function SettingsPage() {
     redirect("/login");
   }
 
-  const { data: profile } = await supabase
-    .from("business_profiles")
-    .select("*")
-    .eq("user_id", user.id)
-    .maybeSingle();
+  const [{ data: profile }, { data: connection }, params] = await Promise.all([
+    supabase
+      .from("business_profiles")
+      .select("*")
+      .eq("user_id", user.id)
+      .maybeSingle(),
+    // Through the function, not the table: `email_accounts` has no select
+    // policy, so this is the only view of it that exists outside the server.
+    supabase.rpc("get_email_connection").maybeSingle(),
+    searchParams,
+  ]);
 
   return (
     <main className="min-h-screen">
@@ -45,6 +56,11 @@ export default async function SettingsPage() {
         <SettingsForm
           userId={user.id}
           initialProfile={(profile ?? null) as BusinessProfile | null}
+        />
+        <InboxCard
+          userId={user.id}
+          connection={(connection ?? null) as EmailConnection | null}
+          outcome={params.inbox}
         />
       </div>
     </main>

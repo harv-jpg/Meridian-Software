@@ -19,6 +19,9 @@ const config: Config = {
         // the same hex as `stage.proposal`, so reusing it would have given two
         // landing-page cards the same bar.
         plum: "#6E5B8B",
+        // The inbox, for the same reason: `stage.lead` is the Pipeline card's
+        // bar, and a second card wearing it reads as an accident.
+        sky: "#3B6EA5",
         // A full scale, not a single value. Defining `slate` as a bare string
         // replaces Tailwind's built-in scale, which silently voids every
         // `text-slate-500` in the app and flattens the whole type hierarchy.

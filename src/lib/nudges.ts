@@ -1,5 +1,5 @@
 import { isOverdue, isQuiet } from "@/lib/types";
-import type { ClientRecord, Invoice } from "@/lib/types";
+import type { ClientRecord, EmailMessage, Invoice } from "@/lib/types";
 import type { DraftReason } from "@/lib/drafting";
 
 /**
@@ -26,12 +26,15 @@ export interface NudgeCandidate {
  * @param clients      Non-archived clients, across every account.
  * @param invoicesByClient  Unpaid invoices grouped by client id.
  * @param waiting      `${clientId}:${kind}` for every nudge still unresolved.
+ * @param emailsByClient   Filed messages grouped by client id. A client who
+ *                     replied last week is not quiet, whatever the row says.
  * @param now          Injected so the caller's clock is testable.
  */
 export function selectCandidates(
   clients: ClientRecord[],
   invoicesByClient: Map<string, Invoice[]>,
   waiting: Set<string>,
+  emailsByClient: Map<string, EmailMessage[]> = new Map(),
   now: Date = new Date()
 ): NudgeCandidate[] {
   const candidates: NudgeCandidate[] = [];
@@ -44,7 +47,7 @@ export function selectCandidates(
     // email should be about. One nudge per client per run either way.
     const reason: DraftReason | null = own.some(isOverdue)
       ? "payment"
-      : isQuiet(client, own, now)
+      : isQuiet(client, own, emailsByClient.get(client.id) ?? [], now)
         ? "silence"
         : null;
 
@@ -69,13 +72,15 @@ export function selectCandidates(
   return candidates;
 }
 
-/** Groups invoices by client id in one pass. */
-export function groupInvoices(invoices: Invoice[]): Map<string, Invoice[]> {
-  const byClient = new Map<string, Invoice[]>();
-  for (const invoice of invoices) {
-    const list = byClient.get(invoice.client_id);
-    if (list) list.push(invoice);
-    else byClient.set(invoice.client_id, [invoice]);
+/** Groups rows carrying a `client_id` by that id, in one pass. */
+export function groupByClient<T extends { client_id: string }>(
+  rows: T[]
+): Map<string, T[]> {
+  const byClient = new Map<string, T[]>();
+  for (const row of rows) {
+    const list = byClient.get(row.client_id);
+    if (list) list.push(row);
+    else byClient.set(row.client_id, [row]);
   }
   return byClient;
 }

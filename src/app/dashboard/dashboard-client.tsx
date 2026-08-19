@@ -14,6 +14,7 @@ export default function DashboardClient({
   initialInvoices,
   initialNudges,
   defaultVatRateBp,
+  hasInbox,
   userId,
 }: {
   initialClients: ClientRecord[];
@@ -21,6 +22,8 @@ export default function DashboardClient({
   /** Drafts the nightly job parked. Empty unless that job is configured. */
   initialNudges: Nudge[];
   defaultVatRateBp: number;
+  /** Whether a mailbox is connected, for the drawer's Emails tab. */
+  hasInbox: boolean;
   userId: string;
 }) {
   const [clients, setClients] = useState<ClientRecord[]>(initialClients);
@@ -101,6 +104,7 @@ export default function DashboardClient({
         selectedId={selectedId}
         setSelectedId={setSelectedId}
         defaultVatRateBp={defaultVatRateBp}
+        hasInbox={hasInbox}
       />
 
       {showImport && (

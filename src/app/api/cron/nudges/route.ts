@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { createServiceClient } from "@/lib/supabase/service";
-import type { ClientRecord, Contract, Invoice, TimeEntry } from "@/lib/types";
+import type {
+  ClientRecord,
+  Contract,
+  EmailMessage,
+  Invoice,
+  TimeEntry,
+} from "@/lib/types";
 import { writeDraft } from "@/lib/drafting";
-import { groupInvoices, selectCandidates } from "@/lib/nudges";
+import { groupByClient, selectCandidates } from "@/lib/nudges";
 
 /**
  * The nightly job: find what needs chasing, write the email, park it.
@@ -50,13 +56,16 @@ export async function POST(request: Request) {
   const supabase = createServiceClient();
   const anthropic = new Anthropic({ apiKey });
 
-  const [clientRes, invoiceRes, waitingRes, profileRes] = await Promise.all([
+  const [clientRes, invoiceRes, waitingRes, emailRes, profileRes] = await Promise.all([
     supabase.from("clients").select("*").is("archived_at", null),
     // All of them, paid included. `isQuiet` treats a raised invoice as
     // activity, so filtering paid ones out here would make a client look
     // quieter to the job than they look on the board.
     supabase.from("invoices").select("*"),
     supabase.from("nudges").select("client_id, kind").eq("status", "waiting"),
+    // Filed mail counts as activity: a client who replied last week is not
+    // quiet, whatever their client row says.
+    supabase.from("email_messages").select("client_id, sent_at"),
     supabase.from("business_profiles").select("user_id, business_name"),
   ]);
 
@@ -71,8 +80,16 @@ export async function POST(request: Request) {
 
   // Decide everything before calling the model, so the expensive part runs
   // over a list that is already capped.
-  const invoicesByClient = groupInvoices(invoices);
-  const candidates = selectCandidates(clients, invoicesByClient, waiting);
+  const invoicesByClient = groupByClient(invoices);
+  const emailsByClient = groupByClient(
+    (emailRes.data ?? []) as { client_id: string; sent_at: string }[]
+  );
+  const candidates = selectCandidates(
+    clients,
+    invoicesByClient,
+    waiting,
+    emailsByClient as Map<string, EmailMessage[]>
+  );
 
   let written = 0;
   const failed: string[] = [];

@@ -28,9 +28,10 @@ It hides itself when there is nothing to do.
 
 **Quiet deals** — an open deal nobody has touched for three weeks is flagged on
 its card and listed in Needs attention, longest silence first. "Touched" means
-a write to the client row or an invoice raised against them; logging time is
-not counted, because the board would have to load every time entry to find out,
-so the flag errs towards saying a client is quieter than they are. A client
+a write to the client row, an invoice raised against them, or — once an inbox is
+connected — mail either way. Logging time is the one activity not counted,
+because the board would have to load every time entry to find out, so the flag
+errs towards saying a client is quieter than they are. A client
 with a follow-up date is never flagged — you have already decided when to chase
 them, and Follow-ups raises it on the day.
 
@@ -44,11 +45,13 @@ never also nudged about.
 **Client detail** — clicking a card opens a slide-over drawer, with the board
 still visible behind it. The header carries the client's name, value and a stage
 switcher; a summary strip shows tracked time, unbilled time, total invoiced and
-total paid. Below that, four tabs:
+total paid. Below that, five tabs:
 
 - **Details** — company, email, phone, a follow-up date and free-text notes,
   edited together and saved as one form; the Save button enables only once
   something has changed
+- **Emails** — mail with this client, filed by the inbox sync rather than typed
+  by anyone; empty until an inbox is connected
 - **Time** — a live timer, or log minutes by hand; entries are marked `billed`
   once invoiced
 - **Invoices** — generate from unbilled time at an hourly rate, or as a fixed
@@ -85,8 +88,9 @@ the draft leans on. **Nothing is sent.** You copy it, or open it in your own
 mail client with the send button still unpressed. Without the key the panel
 says it isn't set up and nothing else changes.
 
-It writes from the record, not in your voice — matching how you actually write
-would mean reading your sent mail, which this app has no access to.
+It writes from the record, not in your voice. Connecting an inbox does now put
+your sent mail in reach, but the drafting does not read it yet — that is the
+next step, not a thing this already does.
 
 **Overnight drafting** — with `SUPABASE_SERVICE_ROLE_KEY` and `CRON_SECRET` set
 as well, a job runs each night at 05:00 UTC. It finds deals that have gone quiet
@@ -110,6 +114,33 @@ security. Because RLS is not protecting those queries, the job does that work
 itself: every read is grouped by `user_id` and every row written carries the id
 it came from. `src/lib/supabase/service.ts` says so at the top, and it is worth
 keeping that way.
+
+**Your inbox** — connect Gmail from Business details and mail to and from your
+clients is filed against them automatically: no tagging, no forwarding, no
+BCC address. A new **Emails** tab on each client shows the thread, newest
+first, with the subject linking straight to Gmail.
+
+Matching is on the exact address, never the domain — two people at the same
+company would otherwise collect each other's mail, and filing a message against
+the wrong client is worse than not filing it at all. A message is only stored if
+it matches a client you have already added, so this never becomes a copy of your
+mailbox.
+
+Read-only, and metadata only. The scope is `gmail.readonly`, so nothing here can
+send, delete or change your mail; the sync asks Gmail for headers and its own
+one-line preview, so message bodies are never sent over the wire or stored. The
+record is here to say what happened and when — reading the thread is what your
+mail app is for.
+
+Filed mail also feeds back into everything else: a client who replied last week
+is no longer counted as quiet, which is the gap the quiet flag had before this
+existed.
+
+> **Before this works publicly.** `gmail.readonly` is a *restricted* scope.
+> Google requires an annual third-party security assessment before an app using
+> it can be published to everyone. Until that is done, keep the OAuth consent
+> screen in "Testing" and add each user as a test user — up to 100 are allowed,
+> which is enough for an invitation launch but not for open sign-up.
 
 **Business details** — your name, address, VAT number and rate, how to pay you
 and an invoice footer, set once at `/dashboard/settings` and applied to every
@@ -140,7 +171,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-public-key
 ```
 
 **3. Create the tables.** Paste `supabase/schema.sql` into the Supabase SQL
-Editor and run it. It creates all seven tables with their row-level security
+Editor and run it. It creates all nine tables with their row-level security
 policies, and is safe to re-run against a project that already has some of them.
 It already includes the contact columns, invoice numbering and invoice sharing,
 so a fresh project needs nothing from `supabase/migrations/`.
@@ -166,20 +197,40 @@ them, and the features that need them say so in place rather than failing.
 **Checks.** `npm test` runs the unit tests, `npm run lint` the linter, and
 `npm run build` type-checks as it compiles.
 
-**5. The nightly job, if you want it.** `vercel.json` declares the schedule, but
-crons only fire on production deployments, so nothing happens locally or on a
-preview. Set `ANTHROPIC_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY` and `CRON_SECRET`
-in the Vercel project's environment variables — Vercel sends `CRON_SECRET` back
-as a bearer token, and the route refuses anything without it, so the endpoint
-cannot be triggered by whoever finds the URL. To try it before waiting for 05:00:
+**5. Your inbox, if you want it.** At
+[console.cloud.google.com](https://console.cloud.google.com): create a project,
+enable the Gmail API, then create an OAuth 2.0 Client ID of type "Web
+application". Add an authorised redirect URI for every environment you use:
+
+```
+http://localhost:3000/api/connect/google/callback
+https://your-app.vercel.app/api/connect/google/callback
+```
+
+Put the client id and secret in `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+Keep the consent screen in "Testing" and add yourself as a test user — see the
+note about restricted scopes above.
+
+**6. The nightly jobs, if you want them.** `vercel.json` declares two — the inbox sync
+at 04:00 UTC and the drafting at 05:00, in that order so a deal that had a reply
+yesterday is not flagged as quiet this morning. Crons only fire on production
+deployments, so nothing happens locally or on a preview.
+
+Set `ANTHROPIC_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY` and `CRON_SECRET` in the
+Vercel project's environment variables. Vercel sends `CRON_SECRET` back as a
+bearer token and both routes refuse anything without it, so neither endpoint can
+be triggered by whoever finds the URL. To try either before waiting:
 
 ```bash
+curl -X POST https://your-app.vercel.app/api/cron/sync \
+  -H "Authorization: Bearer $CRON_SECRET"
+
 curl -X POST https://your-app.vercel.app/api/cron/nudges \
   -H "Authorization: Bearer $CRON_SECRET"
 ```
 
-It answers with how many clients it considered and how many drafts it wrote.
-With any of the three keys missing it answers 501 and does nothing, so a
+Each answers with what it did — messages filed, or clients considered and drafts
+written. With any required key missing they answer 501 and do nothing, so a
 half-configured deployment reads as unconfigured rather than broken.
 
 Then open http://localhost:3000.
@@ -196,6 +247,9 @@ src/
     invoice.ts               line-item totals; mirrors the database trigger
     send.ts                  client wrapper around the email route
     draft.ts                 client wrapper around the drafting route
+    google.ts                OAuth and the two Gmail calls this app makes
+    inbox.ts                 parsing headers and matching mail to a client
+    sync.ts                  syncing one mailbox; shared by cron and button
     drafting.ts              the prompt and record format, shared by both callers
     nudges.ts                who gets a draft tonight, and the caps on a run
     supabase/                browser and server clients, plus the service-role
@@ -209,6 +263,9 @@ src/
     api/send/                emails an invoice or contract to the client
     api/draft/               writes a follow-up email from one client's records
     api/cron/nudges/         nightly: finds who needs chasing, parks a draft
+    api/cron/sync/           nightly: files new mail against clients
+    api/connect/google/      the OAuth dance, and its callback
+    api/sync/                "Check now", for one signed-in user
     sign/[token]/            public contract signing
     invoice/[token]/         public read-only invoice view
     dashboard/
@@ -221,9 +278,10 @@ src/
       needs-attention.tsx      overdue invoices, due follow-ups, quiet deals
       follow-up-draft.tsx      the drafting panel inside a client
       waiting-drafts.tsx       drafts the nightly job left for you
+      emails-tab.tsx           mail filed against a client
       feedback.tsx             toasts and confirmations
       archive/                 archived clients, and restoring them
-      settings/                your business details, VAT and payment info
+      settings/                business details, VAT, payment info, inbox
       import-csv-modal.tsx
 vercel.json                  the nightly cron schedule
 supabase/

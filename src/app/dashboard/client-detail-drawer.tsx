@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import type {
   ClientRecord,
   Contract,
+  EmailMessage,
   Invoice,
   InvoiceItem,
   Stage,
@@ -17,9 +18,10 @@ import DetailsTab from "./details-tab";
 import TimeTab from "./time-tab";
 import InvoicesTab from "./invoices-tab";
 import ContractsTab from "./contracts-tab";
+import EmailsTab from "./emails-tab";
 import { useFeedback } from "./feedback";
 
-type Tab = "details" | "time" | "invoices" | "contracts";
+type Tab = "details" | "emails" | "time" | "invoices" | "contracts";
 
 export default function ClientDetailDrawer({
   client,
@@ -29,6 +31,7 @@ export default function ClientDetailDrawer({
   onStageChange,
   onDeleted,
   defaultVatRateBp,
+  hasInbox,
 }: {
   client: ClientRecord;
   userId: string;
@@ -38,6 +41,8 @@ export default function ClientDetailDrawer({
   onDeleted: () => void;
   /** From your business details; applied to invoices raised here. */
   defaultVatRateBp: number;
+  /** Whether a mailbox is connected, which changes the Emails empty state. */
+  hasInbox: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("details");
   const [loading, setLoading] = useState(true);
@@ -45,6 +50,7 @@ export default function ClientDetailDrawer({
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [invoiceItems, setInvoiceItems] = useState<InvoiceItem[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
+  const [emails, setEmails] = useState<EmailMessage[]>([]);
   const [notesDirty, setNotesDirty] = useState(false);
   const [savingStage, setSavingStage] = useState(false);
   const [loadError, setLoadError] = useState(false);
@@ -65,7 +71,7 @@ export default function ClientDetailDrawer({
 
     async function load() {
       try {
-        const [timeRes, invoiceRes, contractRes] = await Promise.all([
+        const [timeRes, invoiceRes, contractRes, emailRes] = await Promise.all([
           supabase
             .from("time_entries")
             .select("*")
@@ -81,6 +87,11 @@ export default function ClientDetailDrawer({
             .select("*")
             .eq("client_id", client.id)
             .order("created_at", { ascending: false }),
+          supabase
+            .from("email_messages")
+            .select("*")
+            .eq("client_id", client.id)
+            .order("sent_at", { ascending: false }),
         ]);
 
         if (cancelled) return;
@@ -88,6 +99,7 @@ export default function ClientDetailDrawer({
         setTimeEntries((timeRes.data ?? []) as TimeEntry[]);
         setInvoices(loadedInvoices);
         setContracts((contractRes.data ?? []) as Contract[]);
+        setEmails((emailRes.data ?? []) as EmailMessage[]);
 
         // Line items need the invoice ids, so this one cannot join the
         // parallel batch above. Skipped entirely when there are no invoices.
@@ -215,6 +227,7 @@ export default function ClientDetailDrawer({
 
   const tabs: { key: Tab; label: string; count: number | null }[] = [
     { key: "details", label: "Details", count: null },
+    { key: "emails", label: "Emails", count: emails.length },
     { key: "time", label: "Time", count: timeEntries.length },
     { key: "invoices", label: "Invoices", count: invoices.length },
     { key: "contracts", label: "Contracts", count: contracts.length },
@@ -361,6 +374,13 @@ export default function ClientDetailDrawer({
                   client={client}
                   onSaved={onClientSaved}
                   onDirtyChange={setNotesDirty}
+                />
+              )}
+              {tab === "emails" && (
+                <EmailsTab
+                  messages={emails}
+                  hasInbox={hasInbox}
+                  clientEmail={client.email}
                 />
               )}
               {tab === "time" && (

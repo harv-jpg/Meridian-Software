@@ -37,6 +37,12 @@ const FEATURES = [
     accent: "bg-stage-lost",
   },
   {
+    title: "Your inbox",
+    body: "Connect Gmail and mail with a client files itself against them — no tagging, no BCC address. Read-only, and only for people already on your board.",
+    // Not bg-stage-lead: that is the Pipeline card's bar, two cards up.
+    accent: "bg-sky",
+  },
+  {
     title: "Follow-ups, written",
     body: "Deals going quiet and invoices going late are drafted overnight, waiting when you open the app. Or ask for one on the spot. Either way it lands in a box you can edit — nothing sends without you.",
     // Its own colour: every other accent, `gold` included, is already a

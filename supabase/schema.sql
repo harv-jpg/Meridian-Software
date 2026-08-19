@@ -131,6 +131,43 @@ create table if not exists public.nudges (
   created_at timestamptz not null default now()
 );
 
+-- A connected mailbox. Unlike every other table here, this one gives its owner
+-- almost nothing: see the policy section for why.
+create table if not exists public.email_accounts (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  provider text not null default 'google' check (provider in ('google')),
+  email_address text not null,
+  access_token text not null,
+  refresh_token text not null,
+  expires_at timestamptz not null,
+  history_id text,
+  last_synced_at timestamptz,
+  -- Set when Google stops accepting the refresh token. The UI reads this and
+  -- asks for a reconnect rather than going quiet.
+  needs_reauth boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+-- Mail the sync matched to a client. A message is only kept if it matches, so
+-- this never becomes a copy of the mailbox.
+create table if not exists public.email_messages (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  client_id uuid not null references public.clients(id) on delete cascade,
+  message_id text not null,
+  thread_id text not null,
+  direction text not null check (direction in ('in', 'out')),
+  from_address text,
+  to_address text,
+  subject text,
+  -- Gmail's own one-line preview, not the body. The record says what happened
+  -- and when; reading the thread is what the mail app is for.
+  snippet text,
+  sent_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  unique (user_id, message_id)
+);
+
 -- ---------------------------------------------------------------------------
 -- Row Level Security
 -- ---------------------------------------------------------------------------
@@ -145,6 +182,8 @@ alter table public.contracts enable row level security;
 alter table public.invoice_items enable row level security;
 alter table public.business_profiles enable row level security;
 alter table public.nudges enable row level security;
+alter table public.email_accounts enable row level security;
+alter table public.email_messages enable row level security;
 
 -- clients
 drop policy if exists "Users can view their own clients" on public.clients;
@@ -248,6 +287,34 @@ create policy "Users can delete their own nudges"
   on public.nudges for delete
   using (auth.uid() = user_id);
 
+-- email_accounts: DELETE ONLY, and deliberately so.
+--
+-- Every other table here gives its owner all four verbs, because every other
+-- table holds their own data and reading it back is the point. A refresh token
+-- is different: the browser never needs it, and a token the browser can fetch
+-- is a token any XSS on the page can send somewhere else. With RLS on and no
+-- select/insert/update policy, those operations reach zero rows whatever the
+-- query says. The only ways in are the service role — used by the OAuth
+-- callback and the sync job — and get_email_connection() further down, which
+-- returns status without ever returning a token.
+drop policy if exists "Users can disconnect their own account" on public.email_accounts;
+create policy "Users can disconnect their own account"
+  on public.email_accounts for delete
+  using (auth.uid() = user_id);
+
+-- email_messages: ordinary read access; unlike tokens there is nothing here
+-- the browser should not see. Written by the sync under the service role, so
+-- no insert or update policy.
+drop policy if exists "Users can view their own emails" on public.email_messages;
+create policy "Users can view their own emails"
+  on public.email_messages for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own emails" on public.email_messages;
+create policy "Users can delete their own emails"
+  on public.email_messages for delete
+  using (auth.uid() = user_id);
+
 -- invoice_items
 drop policy if exists "Users can view their own invoice items" on public.invoice_items;
 create policy "Users can view their own invoice items"
@@ -332,6 +399,12 @@ create trigger business_profiles_touch_updated_at
 create index if not exists clients_follow_up_on_idx
   on public.clients (user_id, follow_up_on)
   where follow_up_on is not null;
+
+create index if not exists email_messages_client_idx
+  on public.email_messages (client_id, sent_at desc);
+
+create index if not exists email_messages_user_sent_idx
+  on public.email_messages (user_id, sent_at desc);
 
 -- The dashboard asks for one user's waiting nudges on every load.
 create index if not exists nudges_user_status_idx
@@ -555,3 +628,33 @@ as $function$
   set status = 'signed', signed_name = p_name, signed_at = now()
   where sign_token = p_token and status = 'sent';
 $function$;
+
+-- ---------------------------------------------------------------------------
+-- Connected mailbox status
+-- ---------------------------------------------------------------------------
+-- The browser's only view of `email_accounts`, which has no select policy.
+--
+-- `security definer` so it can read a table the caller cannot, and it filters
+-- on auth.uid() itself so it can only ever describe the caller's own
+-- connection. The return list is the guarantee: there is no column here that a
+-- token could arrive in.
+drop function if exists public.get_email_connection();
+create or replace function public.get_email_connection()
+returns table (
+  provider text,
+  email_address text,
+  last_synced_at timestamptz,
+  needs_reauth boolean,
+  connected_at timestamptz
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select a.provider, a.email_address, a.last_synced_at, a.needs_reauth, a.created_at
+    from public.email_accounts a
+   where a.user_id = auth.uid();
+$$;
+
+grant execute on function public.get_email_connection() to authenticated;

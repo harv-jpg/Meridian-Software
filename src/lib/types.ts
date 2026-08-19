@@ -85,6 +85,37 @@ export interface Contract {
   created_at: string;
 }
 
+/** A message the inbox sync filed against a client. */
+export interface EmailMessage {
+  id: string;
+  client_id: string;
+  message_id: string;
+  thread_id: string;
+  /** `in` means they wrote to you, `out` means you wrote to them. */
+  direction: "in" | "out";
+  from_address: string | null;
+  to_address: string | null;
+  subject: string | null;
+  snippet: string | null;
+  sent_at: string;
+}
+
+/**
+ * A connected mailbox, as the browser is allowed to see it.
+ *
+ * Comes from `get_email_connection()` rather than the table: `email_accounts`
+ * has no select policy, so the tokens are unreachable with the anon key and
+ * this shape is the only view of it that exists client-side.
+ */
+export interface EmailConnection {
+  provider: string;
+  email_address: string;
+  last_synced_at: string | null;
+  /** Google stopped accepting the grant; the user has to reconnect. */
+  needs_reauth: boolean;
+  connected_at: string;
+}
+
 /** Why a nudge was written. */
 export type NudgeKind = "silence" | "payment";
 /** `waiting` until its owner sends or dismisses it. */
@@ -150,21 +181,28 @@ const OPEN_STAGES: Stage[] = ["lead", "proposal_sent", "negotiating"];
  * The last time anything happened on this deal.
  *
  * `clients.updated_at` moves on any write to the row — a stage change, an
- * edited note, a new follow-up date. Raising an invoice does not touch it, so
- * the invoices are folded in here. Logging time is the one activity this
- * misses: time entries are loaded per client in the drawer, not for the whole
- * board, and fetching every entry to compute one date is not worth it. The
- * effect is conservative — a client can look quieter than they are, never
- * busier.
+ * edited note, a new follow-up date. Raising an invoice does not touch it, and
+ * neither does an email arriving, so both are folded in here.
+ *
+ * Emails matter most: a client who replied last week is not quiet, whatever
+ * the client row says, and before the inbox sync existed there was no way to
+ * know that. Logging time is the one activity still missed — time entries are
+ * loaded per client in the drawer, not for the whole board. The effect stays
+ * conservative: a client can look quieter than they are, never busier.
  */
 export function lastTouchedAt(
   client: Pick<ClientRecord, "id" | "created_at" | "updated_at">,
-  invoices: Pick<Invoice, "client_id" | "created_at">[] = []
+  invoices: Pick<Invoice, "client_id" | "created_at">[] = [],
+  emails: Pick<EmailMessage, "client_id" | "sent_at">[] = []
 ): string {
   let latest = client.updated_at || client.created_at;
   for (const invoice of invoices) {
     if (invoice.client_id !== client.id) continue;
     if (invoice.created_at > latest) latest = invoice.created_at;
+  }
+  for (const email of emails) {
+    if (email.client_id !== client.id) continue;
+    if (email.sent_at > latest) latest = email.sent_at;
   }
   return latest;
 }
@@ -182,10 +220,13 @@ export function isQuiet(
     "id" | "stage" | "follow_up_on" | "archived_at" | "created_at" | "updated_at"
   >,
   invoices: Pick<Invoice, "client_id" | "created_at">[] = [],
+  emails: Pick<EmailMessage, "client_id" | "sent_at">[] = [],
   now: Date = new Date()
 ): boolean {
   if (client.archived_at) return false;
   if (client.follow_up_on) return false;
   if (!OPEN_STAGES.includes(client.stage)) return false;
-  return daysSince(lastTouchedAt(client, invoices), now) >= QUIET_AFTER_DAYS;
+  return (
+    daysSince(lastTouchedAt(client, invoices, emails), now) >= QUIET_AFTER_DAYS
+  );
 }

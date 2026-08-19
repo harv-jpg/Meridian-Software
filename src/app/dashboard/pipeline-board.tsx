@@ -18,6 +18,7 @@ export default function PipelineBoard({
   selectedId,
   setSelectedId,
   defaultVatRateBp,
+  hasInbox,
 }: {
   clients: ClientRecord[];
   setClients: React.Dispatch<React.SetStateAction<ClientRecord[]>>;
@@ -31,6 +32,8 @@ export default function PipelineBoard({
   setSelectedId: (id: string | null) => void;
   /** From your business details; applied to invoices raised in the drawer. */
   defaultVatRateBp: number;
+  /** Whether a mailbox is connected, for the drawer's Emails tab. */
+  hasInbox: boolean;
 }) {
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
@@ -353,6 +356,7 @@ export default function PipelineBoard({
             setSelectedId(null);
           }}
           defaultVatRateBp={defaultVatRateBp}
+          hasInbox={hasInbox}
         />
       )}
     </div>
