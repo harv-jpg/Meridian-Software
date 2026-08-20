@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import ArchiveList from "./archive-list";
 import type { ClientRecord } from "@/lib/types";
+import type { AttachedCounts } from "@/lib/archive";
 
 export default async function ArchivePage() {
   const supabase = await createClient();
@@ -19,6 +20,38 @@ export default async function ArchivePage() {
     .select("*")
     .not("archived_at", "is", null)
     .order("archived_at", { ascending: false });
+
+  const archived = (clients ?? []) as ClientRecord[];
+  const ids = archived.map((c) => c.id);
+
+  // What deleting each one would take with it. Counted here rather than in the
+  // list so the confirmation can name real numbers instead of warning vaguely
+  // about "related records" — people agree to vague warnings without reading.
+  const attached: Record<string, AttachedCounts> = {};
+  if (ids.length > 0) {
+    const [timeRes, invoiceRes, contractRes, emailRes] = await Promise.all([
+      supabase.from("time_entries").select("client_id").in("client_id", ids),
+      supabase.from("invoices").select("client_id").in("client_id", ids),
+      supabase.from("contracts").select("client_id").in("client_id", ids),
+      supabase.from("email_messages").select("client_id").in("client_id", ids),
+    ]);
+
+    for (const id of ids) {
+      attached[id] = { time: 0, invoices: 0, contracts: 0, emails: 0 };
+    }
+    const bump = (
+      rows: { client_id: string }[] | null,
+      key: keyof AttachedCounts
+    ) => {
+      for (const row of rows ?? []) {
+        if (attached[row.client_id]) attached[row.client_id][key] += 1;
+      }
+    };
+    bump(timeRes.data, "time");
+    bump(invoiceRes.data, "invoices");
+    bump(contractRes.data, "contracts");
+    bump(emailRes.data, "emails");
+  }
 
   return (
     <main className="min-h-screen">
@@ -40,9 +73,10 @@ export default async function ArchivePage() {
         <p className="mb-6 text-sm text-slate-500">
           Archived clients are off the board but nothing has been deleted —
           their time, invoices and contracts are all still here. Restore one and
-          it returns to the stage it was in.
+          it returns to the stage it was in. Deleting is permanent, and takes
+          everything attached with it.
         </p>
-        <ArchiveList initialClients={(clients ?? []) as ClientRecord[]} />
+        <ArchiveList initialClients={archived} attached={attached} />
       </div>
     </main>
   );

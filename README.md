@@ -170,9 +170,17 @@ bookkeeper can file.
 
 **Archiving** — finishing with a client archives them rather than deleting.
 They leave the board and their time, invoices and contracts are kept; the
-Archive page lists them and restores one to the stage it left. Permanent
-deletion stays available only while a client has none of those attached, since
-the cascade would otherwise destroy records you are expected to keep.
+Archive page lists them and restores one to the stage it left.
+
+Deleting happens from the Archive too, without restoring first. Each row says
+what it holds — "14 time entries, 3 invoices, 1 contract and 22 filed emails" —
+and the confirmation repeats it, because a warning about "related records" is
+one people click through without reading.
+
+Deletion is offered even when there is billing history attached. Refusing
+outright, as the client drawer does, leaves no way to honour an erasure request
+under UK GDPR, and the records belong to the user rather than to the app. Being
+specific about the cost is the better answer than deciding for them.
 
 **CSV import** — bring clients in from a spreadsheet or another CRM, mapping
 your columns onto name, email, phone, company, value, stage and notes. The

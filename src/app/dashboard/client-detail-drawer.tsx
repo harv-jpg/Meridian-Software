@@ -425,9 +425,9 @@ export default function ClientDetailDrawer({
           <footer className="border-t border-ink/10 px-6 py-4">
             {hasRecords ? (
               <p className="text-xs text-slate-400">
-                This client has billed work against them, so they can only be
-                archived — deleting would take their time, invoices and
-                contracts with them.
+                This client has billed work against them. Archive them instead —
+                or delete from the Archive, where you can see exactly what would
+                go with them.
               </p>
             ) : (
               <button
