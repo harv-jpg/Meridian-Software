@@ -38,7 +38,7 @@ const FEATURES = [
   },
   {
     title: "Your inbox",
-    body: "Connect Gmail and mail with a client files itself against them — no tagging, no BCC address. Read-only, and only for people already on your board.",
+    body: "Connect Gmail, Outlook, or your own domain's mailbox, and mail with a client files itself against them — no tagging, no BCC address. Subjects and dates only, never the message.",
     // Not bg-stage-lead: that is the Pipeline card's bar, two cards up.
     accent: "bg-sky",
   },

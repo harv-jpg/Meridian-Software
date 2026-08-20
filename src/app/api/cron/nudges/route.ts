@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { createServiceClient } from "@/lib/supabase/service";
+import { secretsMatch } from "@/lib/crypto";
 import type {
   ClientRecord,
   Contract,
@@ -49,7 +50,7 @@ export async function POST(request: Request) {
 
   // Vercel Cron sends this header when CRON_SECRET is set on the project.
   // Without the check, the route is a public endpoint that spends money.
-  if (request.headers.get("authorization") !== `Bearer ${secret}`) {
+  if (!secretsMatch(request.headers.get("authorization") ?? "", `Bearer ${secret}`)) {
     return unauthorised();
   }
 

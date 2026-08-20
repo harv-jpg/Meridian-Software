@@ -115,10 +115,18 @@ itself: every read is grouped by `user_id` and every row written carries the id
 it came from. `src/lib/supabase/service.ts` says so at the top, and it is worth
 keeping that way.
 
-**Your inbox** — connect Gmail from Business details and mail to and from your
-clients is filed against them automatically: no tagging, no forwarding, no
-BCC address. A new **Emails** tab on each client shows the thread, newest
-first, with the subject linking straight to Gmail.
+**Your inbox** — connect a mailbox from Business details and mail to and from
+your clients is filed against them automatically: no tagging, no forwarding, no
+BCC address. Each client gains an **Emails** tab showing the thread, newest
+first.
+
+Gmail, Fastmail, iCloud and any ordinary IMAP host connect with an **app
+password** — free, immediate, and it reaches the custom-domain mailboxes that
+provider APIs cannot see at all. Outlook and Microsoft 365 sign in instead,
+because Microsoft retired password access for mail apps; that is also free.
+
+Everything lands on one IMAP connection running one fetch, so a provider is a
+credential rather than an integration. `src/lib/providers.ts` is the whole list.
 
 Matching is on the exact address, never the domain — two people at the same
 company would otherwise collect each other's mail, and filing a message against
@@ -126,21 +134,28 @@ the wrong client is worse than not filing it at all. A message is only stored if
 it matches a client you have already added, so this never becomes a copy of your
 mailbox.
 
-Read-only, and metadata only. The scope is `gmail.readonly`, so nothing here can
-send, delete or change your mail; the sync asks Gmail for headers and its own
-one-line preview, so message bodies are never sent over the wire or stored. The
-record is here to say what happened and when — reading the thread is what your
-mail app is for.
+**Envelopes only.** The sync asks for sender, recipients, subject and date, and
+never downloads a body. The record says what happened and when; reading the
+thread is what your mail app is for.
 
 Filed mail also feeds back into everything else: a client who replied last week
-is no longer counted as quiet, which is the gap the quiet flag had before this
+is no longer counted as quiet, which was the gap the quiet flag had before this
 existed.
 
-> **Before this works publicly.** `gmail.readonly` is a *restricted* scope.
-> Google requires an annual third-party security assessment before an app using
-> it can be published to everyone. Until that is done, keep the OAuth consent
-> screen in "Testing" and add each user as a test user — up to 100 are allowed,
-> which is enough for an invitation launch but not for open sign-up.
+> **On the stored credential.** An app password opens a whole mailbox, so it
+> gets more than the row-level security that already makes `email_accounts`
+> unreachable with the anon key: it is encrypted with AES-256-GCM before it is
+> written, using a key held in `CREDENTIAL_KEY` rather than in the database. A
+> dump on its own is not enough to read anyone's mail. The credential is also
+> proved against the real server before it is stored, so a typo fails at the
+> form rather than becoming a connection that silently never syncs.
+
+> **Why not Gmail's own API?** It needs a *restricted* OAuth scope, which Google
+> only grants a public app after an annual paid security assessment — and in
+> "Testing" mode Google expires refresh tokens every 7 days, which would break a
+> nightly sync weekly. The code for it is still in `src/lib/google.ts` and its
+> two routes, unused, for if that assessment is ever worth buying. App passwords
+> need none of it.
 
 **Business details** — your name, address, VAT number and rate, how to pay you
 and an invoice footer, set once at `/dashboard/settings` and applied to every
@@ -190,34 +205,46 @@ npm run dev
 
 Optional keys, all listed in `.env.local.example`. `RESEND_API_KEY` and
 `EMAIL_FROM` turn on email; `ANTHROPIC_API_KEY` turns on follow-up drafting;
-adding `SUPABASE_SERVICE_ROLE_KEY` and `CRON_SECRET` on top turns on the
-nightly job that drafts before you arrive. Everything else works without any of
+`CREDENTIAL_KEY` turns on mailbox connections, with `MICROSOFT_CLIENT_ID` and
+`MICROSOFT_CLIENT_SECRET` adding Outlook; `SUPABASE_SERVICE_ROLE_KEY` and
+`CRON_SECRET` turn on the nightly jobs. Everything else works without any of
 them, and the features that need them say so in place rather than failing.
 
 **Checks.** `npm test` runs the unit tests, `npm run lint` the linter, and
 `npm run build` type-checks as it compiles.
 
-**5. Your inbox, if you want it.** At
-[console.cloud.google.com](https://console.cloud.google.com): create a project,
-enable the Gmail API, then create an OAuth 2.0 Client ID of type "Web
-application". Add an authorised redirect URI for every environment you use:
+**5. Your inbox, if you want it.** Set one variable and app-password
+connections work — Gmail, Fastmail, iCloud, and any IMAP host:
 
-```
-http://localhost:3000/api/connect/google/callback
-https://your-app.vercel.app/api/connect/google/callback
+```bash
+openssl rand -hex 32   # put the result in CREDENTIAL_KEY
 ```
 
-Put the client id and secret in `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
-Keep the consent screen in "Testing" and add yourself as a test user — see the
-note about restricted scopes above.
+Keep that key. Changing it makes every stored credential unreadable and
+everyone has to reconnect.
+
+For Outlook, register an app at
+[entra.microsoft.com](https://entra.microsoft.com) — App registrations → New
+registration, allowing both organisational and personal Microsoft accounts. Add
+a Web redirect URI per environment:
+
+```
+http://localhost:3000/api/connect/microsoft/callback
+https://your-app.vercel.app/api/connect/microsoft/callback
+```
+
+Then add a client secret, and under API permissions grant delegated
+`offline_access` plus `IMAP.AccessAsUser.All` from Office 365 Exchange Online.
+Put the two values in `MICROSOFT_CLIENT_ID` and `MICROSOFT_CLIENT_SECRET`. No
+paid review, no verification wait.
 
 **6. The nightly jobs, if you want them.** `vercel.json` declares two — the inbox sync
 at 04:00 UTC and the drafting at 05:00, in that order so a deal that had a reply
 yesterday is not flagged as quiet this morning. Crons only fire on production
 deployments, so nothing happens locally or on a preview.
 
-Set `ANTHROPIC_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY` and `CRON_SECRET` in the
-Vercel project's environment variables. Vercel sends `CRON_SECRET` back as a
+Set `ANTHROPIC_API_KEY`, `CREDENTIAL_KEY`, `SUPABASE_SERVICE_ROLE_KEY` and
+`CRON_SECRET` in the Vercel project's environment variables. Vercel sends `CRON_SECRET` back as a
 bearer token and both routes refuse anything without it, so neither endpoint can
 be triggered by whoever finds the URL. To try either before waiting:
 
@@ -247,7 +274,11 @@ src/
     invoice.ts               line-item totals; mirrors the database trigger
     send.ts                  client wrapper around the email route
     draft.ts                 client wrapper around the drafting route
-    google.ts                OAuth and the two Gmail calls this app makes
+    crypto.ts                encrypting a stored mailbox credential
+    providers.ts             the mail hosts we know, and how each authenticates
+    imap.ts                  one connection, one fetch, every provider
+    microsoft.ts             Outlook sign-in, producing an XOAUTH2 credential
+    google.ts                Gmail's own API — unused; see the note above
     inbox.ts                 parsing headers and matching mail to a client
     sync.ts                  syncing one mailbox; shared by cron and button
     drafting.ts              the prompt and record format, shared by both callers
@@ -264,7 +295,9 @@ src/
     api/draft/               writes a follow-up email from one client's records
     api/cron/nudges/         nightly: finds who needs chasing, parks a draft
     api/cron/sync/           nightly: files new mail against clients
-    api/connect/google/      the OAuth dance, and its callback
+    api/connect/imap/        connect with an app password
+    api/connect/microsoft/   Outlook sign-in, and its callback
+    api/connect/google/      Gmail's API flow — unused
     api/sync/                "Check now", for one signed-in user
     sign/[token]/            public contract signing
     invoice/[token]/         public read-only invoice view

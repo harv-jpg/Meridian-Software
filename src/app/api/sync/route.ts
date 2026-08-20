@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { isConfigured } from "@/lib/google";
+import { hasCredentialKey } from "@/lib/crypto";
 import { syncAccount } from "@/lib/sync";
 import type { EmailAccount } from "@/lib/sync";
 
@@ -13,9 +13,9 @@ import type { EmailAccount } from "@/lib/sync";
  * account and want to see it work.
  */
 export async function POST() {
-  if (!isConfigured() || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  if (!hasCredentialKey() || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return NextResponse.json(
-      { error: "Inbox sync is not configured on this deployment." },
+      { error: "Mailbox connections are not configured on this deployment." },
       { status: 501 }
     );
   }
@@ -34,7 +34,9 @@ export async function POST() {
   const service = createServiceClient();
   const { data: account } = await service
     .from("email_accounts")
-    .select("user_id, email_address, access_token, refresh_token, expires_at, last_synced_at")
+    .select(
+      "user_id, provider, email_address, auth_method, secret, imap_host, imap_port, access_token, expires_at, last_synced_at"
+    )
     .eq("user_id", user.id)
     .maybeSingle();
 

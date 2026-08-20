@@ -133,19 +133,51 @@ create table if not exists public.nudges (
 
 -- A connected mailbox. Unlike every other table here, this one gives its owner
 -- almost nothing: see the policy section for why.
+--
+-- Describes a mailbox and a way of authenticating to it, rather than any one
+-- provider. Everything ends up on a single IMAP connection running a single
+-- fetch, so adding a provider is a credential, not an integration:
+--
+--   password  — an app password. Gmail, Fastmail, iCloud, any ordinary IMAP
+--               host. Free, and needs no permission from anybody.
+--   oauth     — a refresh token exchanged for an access token per sync and
+--               used as XOAUTH2 over the same connection. Microsoft requires
+--               this, having retired basic auth.
 create table if not exists public.email_accounts (
   user_id uuid primary key references auth.users(id) on delete cascade,
-  provider text not null default 'google' check (provider in ('google')),
+  provider text not null default 'imap'
+    check (provider in ('google', 'microsoft', 'imap')),
   email_address text not null,
-  access_token text not null,
-  refresh_token text not null,
-  expires_at timestamptz not null,
-  history_id text,
+
+  auth_method text not null default 'password'
+    check (auth_method in ('password', 'oauth')),
+  -- App password or OAuth refresh token, AES-256-GCM encrypted by the
+  -- application before it is written. RLS already makes this table unreachable
+  -- with the anon key; encryption additionally means a database dump on its
+  -- own does not hand over anybody's mailbox. Key lives in CREDENTIAL_KEY.
+  secret text not null,
+
+  imap_host text not null,
+  imap_port integer not null default 993,
+
+  -- OAuth only, and encrypted the same way. Null on a password connection,
+  -- which has no access token to expire.
+  access_token text,
+  expires_at timestamptz,
+
   last_synced_at timestamptz,
-  -- Set when Google stops accepting the refresh token. The UI reads this and
-  -- asks for a reconnect rather than going quiet.
+  -- Set when the mail server stops accepting the credential. The UI reads this
+  -- and asks for a reconnect rather than going quiet.
   needs_reauth boolean not null default false,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+
+  -- A password connection has no token to expire; an oauth one must have
+  -- somewhere to put it. Stating it here means a bug in a callback shows up as
+  -- a failed insert rather than a connection that silently never syncs.
+  constraint email_accounts_oauth_fields_check check (
+    auth_method = 'password'
+    or (auth_method = 'oauth' and expires_at is not null)
+  )
 );
 
 -- Mail the sync matched to a client. A message is only kept if it matches, so
@@ -290,9 +322,11 @@ create policy "Users can delete their own nudges"
 -- email_accounts: DELETE ONLY, and deliberately so.
 --
 -- Every other table here gives its owner all four verbs, because every other
--- table holds their own data and reading it back is the point. A refresh token
--- is different: the browser never needs it, and a token the browser can fetch
--- is a token any XSS on the page can send somewhere else. With RLS on and no
+-- table holds their own data and reading it back is the point. A mailbox
+-- credential is different: the browser never needs it, and one the browser can
+-- fetch is one that any XSS on the page can send somewhere else. An app
+-- password is worse than a scoped token — it opens the whole mailbox — which
+-- is why it is also encrypted on top of this. With RLS on and no
 -- select/insert/update policy, those operations reach zero rows whatever the
 -- query says. The only ways in are the service role — used by the OAuth
 -- callback and the sync job — and get_email_connection() further down, which

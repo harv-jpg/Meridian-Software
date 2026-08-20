@@ -1,14 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { decryptSecret, encryptSecret } from "@/lib/crypto";
+import { ImapAuthError, fetchSince } from "@/lib/imap";
+import type { ImapCredentials } from "@/lib/imap";
+import { MicrosoftAuthError, msRefresh } from "@/lib/microsoft";
 import {
-  GoogleAuthError,
-  fetchMessage,
-  listMessageIds,
-  refreshAccessToken,
-} from "@/lib/google";
-import {
+  FIRST_SYNC_DAYS,
   MAX_MESSAGES_PER_SYNC,
   addressIndex,
-  buildQuery,
   fileMessage,
 } from "@/lib/inbox";
 import type { FiledMessage } from "@/lib/inbox";
@@ -17,28 +15,36 @@ import type { ClientRecord } from "@/lib/types";
 /**
  * Syncing one connected mailbox.
  *
- * Called by the nightly job for every account, and by the Sync now button for
- * one. Both paths must behave identically, so the work lives here rather than
- * in either route.
+ * Called by the nightly job for every account, and by "Check now" for one.
+ * Both must behave identically, so the work lives here rather than in either
+ * route.
+ *
+ * The provider only decides how we authenticate. Once a credential exists, one
+ * IMAP connection does the same fetch and the same filing for everybody.
  *
  * Takes a service-role Supabase client: `email_accounts` is unreachable with
- * the anon key by design. The caller is responsible for having established
- * which user this is.
+ * the anon key by design. Establishing which user this is belongs to the
+ * caller.
  */
 
 export interface SyncResult {
   filed: number;
   scanned: number;
-  /** Set when Google refused the grant and the user has to reconnect. */
+  /** Set when the credential is dead and only the user can fix it. */
   needsReauth?: boolean;
 }
 
 export interface EmailAccount {
   user_id: string;
+  provider: "google" | "microsoft" | "imap";
   email_address: string;
-  access_token: string;
-  refresh_token: string;
-  expires_at: string;
+  auth_method: "password" | "oauth";
+  /** Encrypted: an app password, or an OAuth refresh token. */
+  secret: string;
+  imap_host: string;
+  imap_port: number;
+  access_token: string | null;
+  expires_at: string | null;
   last_synced_at: string | null;
 }
 
@@ -46,49 +52,63 @@ export interface EmailAccount {
 const EXPIRY_GRACE_MS = 60_000;
 
 /**
- * A usable access token, refreshing first if the stored one is about to die.
+ * A credential this account can connect with.
  *
- * Google only returns a new refresh token when it feels like it, so the stored
- * one is kept unless a replacement actually arrives.
+ * For a password account that is the stored secret. For an OAuth account it is
+ * an access token, refreshed first if the stored one is about to expire — and
+ * the new one written back, so the next run does not refresh again needlessly.
  */
-async function usableToken(
+async function credentialFor(
   supabase: SupabaseClient,
   account: EmailAccount
-): Promise<string> {
-  const expiresAt = new Date(account.expires_at).getTime();
-  if (Number.isFinite(expiresAt) && expiresAt - EXPIRY_GRACE_MS > Date.now()) {
-    return account.access_token;
+): Promise<ImapCredentials> {
+  const base = {
+    host: account.imap_host,
+    port: account.imap_port,
+    user: account.email_address,
+  };
+
+  if (account.auth_method === "password") {
+    return { ...base, method: "password", secret: decryptSecret(account.secret) };
   }
 
-  const tokens = await refreshAccessToken(account.refresh_token);
+  const expiresAt = account.expires_at ? new Date(account.expires_at).getTime() : 0;
+  if (account.access_token && expiresAt - EXPIRY_GRACE_MS > Date.now()) {
+    return { ...base, method: "oauth", secret: decryptSecret(account.access_token) };
+  }
+
+  const tokens = await msRefresh(decryptSecret(account.secret));
   await supabase
     .from("email_accounts")
     .update({
-      access_token: tokens.access_token,
+      access_token: encryptSecret(tokens.access_token),
       expires_at: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
-      ...(tokens.refresh_token ? { refresh_token: tokens.refresh_token } : {}),
+      // Microsoft rotates refresh tokens; keeping the old one would work until
+      // it silently stopped.
+      ...(tokens.refresh_token
+        ? { secret: encryptSecret(tokens.refresh_token) }
+        : {}),
     })
     .eq("user_id", account.user_id);
 
-  return tokens.access_token;
+  return { ...base, method: "oauth", secret: tokens.access_token };
+}
+
+/** A credential that will not start working again on its own. */
+function isDeadCredential(e: unknown): boolean {
+  return e instanceof ImapAuthError || e instanceof MicrosoftAuthError;
 }
 
 export async function syncAccount(
   supabase: SupabaseClient,
   account: EmailAccount
 ): Promise<SyncResult> {
-  let accessToken: string;
+  let credentials: ImapCredentials;
   try {
-    accessToken = await usableToken(supabase, account);
+    credentials = await credentialFor(supabase, account);
   } catch (e) {
-    if (e instanceof GoogleAuthError) {
-      // A refresh token that no longer works never starts working again on
-      // its own. Flag it so the UI can ask for a reconnect rather than the
-      // sync failing quietly every night forever.
-      await supabase
-        .from("email_accounts")
-        .update({ needs_reauth: true })
-        .eq("user_id", account.user_id);
+    if (isDeadCredential(e)) {
+      await flagReauth(supabase, account.user_id);
       return { filed: 0, scanned: 0, needsReauth: true };
     }
     throw e;
@@ -103,45 +123,63 @@ export async function syncAccount(
   const clients = (clientRows ?? []) as ClientRecord[];
   const byAddress = addressIndex(clients);
 
-  const query = buildQuery(
-    [...byAddress.keys()],
-    account.last_synced_at ? new Date(account.last_synced_at) : null
-  );
-
-  // No client has an email address yet, so there is nothing to match against
-  // and no query worth sending.
-  if (!query) {
-    await supabase
-      .from("email_accounts")
-      .update({ last_synced_at: new Date().toISOString() })
-      .eq("user_id", account.user_id);
+  // Nothing to match against, so nothing worth connecting for.
+  if (byAddress.size === 0) {
+    await touchSynced(supabase, account.user_id);
     return { filed: 0, scanned: 0 };
   }
 
-  const ids = await listMessageIds(accessToken, query, MAX_MESSAGES_PER_SYNC);
+  // Overlap the previous run by a day. A message arriving between the last
+  // sync and midnight would otherwise be missed forever, and re-seeing one is
+  // free: (user_id, message_id) is unique, so the upsert absorbs it.
+  const from = account.last_synced_at
+    ? new Date(new Date(account.last_synced_at).getTime() - 86400000)
+    : new Date(Date.now() - FIRST_SYNC_DAYS * 86400000);
+
+  let messages;
+  try {
+    messages = await fetchSince(credentials, from, MAX_MESSAGES_PER_SYNC);
+  } catch (e) {
+    if (isDeadCredential(e)) {
+      await flagReauth(supabase, account.user_id);
+      return { filed: 0, scanned: 0, needsReauth: true };
+    }
+    throw e;
+  }
 
   const connected = account.email_address.trim().toLowerCase();
   const filed: FiledMessage[] = [];
-
-  for (const id of ids) {
-    const message = await fetchMessage(accessToken, id);
+  for (const message of messages) {
     const row = fileMessage(message, connected, byAddress);
     if (row) filed.push(row);
   }
 
   if (filed.length > 0) {
-    // Upsert rather than insert: the query window deliberately overlaps by a
-    // day, so re-seeing a message is normal and must not be an error.
     await supabase.from("email_messages").upsert(
       filed.map((row) => ({ ...row, user_id: account.user_id })),
       { onConflict: "user_id,message_id" }
     );
   }
 
+  await touchSynced(supabase, account.user_id);
+  return { filed: filed.length, scanned: messages.length };
+}
+
+/**
+ * A credential that no longer works never starts working again by itself.
+ * Flagging it means the UI can ask for a reconnect, rather than the sync
+ * failing quietly every night forever.
+ */
+async function flagReauth(supabase: SupabaseClient, userId: string) {
+  await supabase
+    .from("email_accounts")
+    .update({ needs_reauth: true })
+    .eq("user_id", userId);
+}
+
+async function touchSynced(supabase: SupabaseClient, userId: string) {
   await supabase
     .from("email_accounts")
     .update({ last_synced_at: new Date().toISOString(), needs_reauth: false })
-    .eq("user_id", account.user_id);
-
-  return { filed: filed.length, scanned: ids.length };
+    .eq("user_id", userId);
 }

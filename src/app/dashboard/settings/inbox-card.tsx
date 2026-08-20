@@ -4,9 +4,11 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { EmailConnection } from "@/lib/types";
 import { formatDate } from "@/lib/format";
+import { PROVIDERS, findProvider } from "@/lib/providers";
+import type { ProviderId } from "@/lib/providers";
 import { useFeedback } from "../feedback";
 
-/** What the OAuth callback puts in `?inbox=`, in words. */
+/** What an OAuth callback puts in `?inbox=`, in words. */
 const OUTCOMES: Record<string, { text: string; tone: "ok" | "bad" }> = {
   connected: { text: "Inbox connected.", tone: "ok" },
   cancelled: { text: "Connection cancelled — nothing changed.", tone: "bad" },
@@ -15,14 +17,14 @@ const OUTCOMES: Record<string, { text: string; tone: "ok" | "bad" }> = {
     tone: "bad",
   },
   norefresh: {
-    text: "Google did not return a lasting permission. Remove Setu at myaccount.google.com/permissions, then connect again.",
+    text: "Your provider did not return a lasting permission. Remove Setu from your account's connected apps, then try again.",
     tone: "bad",
   },
   unconfigured: {
-    text: "Inbox sync is not set up on this deployment.",
+    text: "Mailbox connections are not set up on this deployment.",
     tone: "bad",
   },
-  failed: { text: "Could not connect to Google. Please try again.", tone: "bad" },
+  failed: { text: "Could not complete the connection. Please try again.", tone: "bad" },
 };
 
 export default function InboxCard({
@@ -32,31 +34,73 @@ export default function InboxCard({
 }: {
   userId: string;
   connection: EmailConnection | null;
-  /** From `?inbox=` after coming back from Google. */
+  /** From `?inbox=` after coming back from a provider's sign-in. */
   outcome?: string;
 }) {
+  const [current, setCurrent] = useState(connection);
+  const [providerId, setProviderId] = useState<ProviderId>("gmail");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState("993");
+  const [connecting, setConnecting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
-  const [current, setCurrent] = useState(connection);
   const [lastResult, setLastResult] = useState<string | null>(null);
 
   const supabase = createClient();
   const { notify, confirm } = useFeedback();
   const message = outcome ? OUTCOMES[outcome] : undefined;
+  const provider = findProvider(providerId)!;
+
+  async function connectPassword(e: React.FormEvent) {
+    e.preventDefault();
+    setConnecting(true);
+    setFormError(null);
+
+    try {
+      const res = await fetch("/api/connect/imap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          providerId,
+          email: email.trim(),
+          password,
+          host: host.trim(),
+          port: Number(port) || 993,
+        }),
+      });
+      const data = (await res.json()) as { error?: string; email?: string };
+
+      if (!res.ok) {
+        setFormError(data.error ?? "Could not connect.");
+      } else {
+        // Never keep the credential in component state once it is stored.
+        setPassword("");
+        setCurrent({
+          provider: providerId,
+          email_address: data.email ?? email.trim(),
+          last_synced_at: null,
+          needs_reauth: false,
+          connected_at: new Date().toISOString(),
+        });
+        notify("Inbox connected.", "success");
+      }
+    } catch {
+      setFormError("Could not reach the server.");
+    }
+    setConnecting(false);
+  }
 
   async function syncNow() {
     setSyncing(true);
     setLastResult(null);
     try {
       const res = await fetch("/api/sync", { method: "POST" });
-      const data = (await res.json()) as {
-        filed?: number;
-        scanned?: number;
-        error?: string;
-      };
-
+      const data = (await res.json()) as { filed?: number; error?: string };
       if (!res.ok) {
-        notify(data.error ?? "Could not sync.", "error");
+        notify(data.error ?? "Could not check.", "error");
       } else {
         setLastResult(
           data.filed === 0
@@ -76,15 +120,15 @@ export default function InboxCard({
   async function disconnect() {
     const ok = await confirm({
       title: "Disconnect this inbox?",
-      body: "Setu will stop reading your mail. Messages already filed against your clients are kept — delete the client to remove those.",
+      body: "Setu will stop reading your mail and the stored credential is deleted. Messages already filed against your clients are kept.",
       confirmLabel: "Disconnect",
       destructive: true,
     });
     if (!ok) return;
 
     setDisconnecting(true);
-    // Delete is the one thing the browser may do to this row: the table has
-    // no select, insert or update policy, so the tokens are unreachable here.
+    // Delete is the one thing the browser may do to this row: the table has no
+    // select, insert or update policy, so the credential is unreachable here.
     const { error } = await supabase
       .from("email_accounts")
       .delete()
@@ -130,18 +174,145 @@ export default function InboxCard({
       {current === null ? (
         <>
           <p className="mt-2 text-sm leading-relaxed text-slate-500">
-            Connect Gmail and mail to and from your clients is filed against
-            them automatically — no tagging, no forwarding. Setu reads message
-            headers and Gmail&rsquo;s own one-line preview, and only for
-            addresses that match a client you have already added.
+            Connect your mailbox and mail to and from your clients is filed
+            against them automatically — no tagging, no forwarding. Setu reads
+            who, when and the subject line, never the message body, and only for
+            addresses matching a client you have already added.
           </p>
-          <p className="mt-2 text-xs leading-relaxed text-slate-400">
-            Read-only: nothing here can send, delete or change your mail. You
-            can revoke it at any time from your Google account.
-          </p>
-          <a href="/api/connect/google" className="btn-primary mt-4 inline-block">
-            Connect Gmail
-          </a>
+
+          <fieldset className="mt-4">
+            <legend className="label">Where is your email?</legend>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {PROVIDERS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => {
+                    setProviderId(p.id);
+                    setFormError(null);
+                  }}
+                  aria-pressed={providerId === p.id}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                    providerId === p.id
+                      ? "border-sky bg-sky text-white"
+                      : "border-ink/15 bg-white text-slate-600 hover:border-sky/50 hover:text-sky"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+
+          {provider.hint && (
+            <p className="mt-3 text-xs leading-relaxed text-slate-500">
+              {provider.hint}
+            </p>
+          )}
+
+          {provider.method === "oauth" ? (
+            <a href="/api/connect/microsoft" className="btn-primary mt-4 inline-block">
+              Sign in with {provider.label}
+            </a>
+          ) : (
+            <form onSubmit={connectPassword} className="mt-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className={provider.id === "custom" ? "" : "sm:col-span-2"}>
+                  <label className="label" htmlFor="inbox-email">
+                    Email address
+                  </label>
+                  <input
+                    id="inbox-email"
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="field mt-1"
+                    placeholder="you@yourdomain.co.uk"
+                    autoComplete="username"
+                  />
+                </div>
+
+                {provider.id === "custom" && (
+                  <div className="grid grid-cols-[1fr_auto] gap-2">
+                    <div>
+                      <label className="label" htmlFor="inbox-host">
+                        IMAP server
+                      </label>
+                      <input
+                        id="inbox-host"
+                        required
+                        value={host}
+                        onChange={(e) => setHost(e.target.value)}
+                        className="field mt-1"
+                        placeholder="imap.yourhost.com"
+                      />
+                    </div>
+                    <div>
+                      <label className="label" htmlFor="inbox-port">
+                        Port
+                      </label>
+                      <input
+                        id="inbox-port"
+                        inputMode="numeric"
+                        value={port}
+                        onChange={(e) => setPort(e.target.value)}
+                        className="field mt-1 w-20"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="sm:col-span-2">
+                  <label className="label" htmlFor="inbox-password">
+                    App password
+                  </label>
+                  <input
+                    id="inbox-password"
+                    type="password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="field mt-1 font-mono"
+                    placeholder="••••••••••••••••"
+                    autoComplete="off"
+                  />
+                  {provider.setupUrl && (
+                    <p className="mt-1.5 text-xs text-slate-400">
+                      <a
+                        href={provider.setupUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-sky hover:underline"
+                      >
+                        Create one here
+                      </a>{" "}
+                      — not your normal password.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {formError && (
+                <p className="mt-3 rounded-md border border-red-200 bg-red-50/60 px-3 py-2 text-xs text-red-700">
+                  {formError}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={connecting}
+                className="btn-primary mt-4"
+                aria-busy={connecting}
+              >
+                {connecting ? "Checking the details…" : "Connect"}
+              </button>
+              <p className="mt-3 text-xs leading-relaxed text-slate-400">
+                Stored encrypted, and only ever used to read your mail. Revoke it
+                from your provider at any time and the connection stops working.
+              </p>
+            </form>
+          )}
         </>
       ) : (
         <>
@@ -150,16 +321,17 @@ export default function InboxCard({
           {current.needs_reauth ? (
             <>
               <p className="mt-3 rounded-md border border-red-200 bg-red-50/60 px-3 py-2 text-xs text-red-700">
-                Google has stopped accepting this connection — usually because
-                access was revoked, or it sat unused for six months. Nothing is
-                being filed until you reconnect.
+                Your mail server has stopped accepting the stored credential —
+                usually because it was revoked or the password changed. Nothing
+                is being filed until you reconnect.
               </p>
-              <a
-                href="/api/connect/google"
-                className="btn-primary mt-3 inline-block"
+              <button
+                onClick={disconnect}
+                disabled={disconnecting}
+                className="btn-primary mt-3"
               >
                 Reconnect
-              </a>
+              </button>
             </>
           ) : (
             <p className="mt-1 text-xs text-slate-400">

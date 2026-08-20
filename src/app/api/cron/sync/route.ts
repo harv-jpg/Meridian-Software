@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { isConfigured } from "@/lib/google";
+import { hasCredentialKey, secretsMatch } from "@/lib/crypto";
 import { syncAccount } from "@/lib/sync";
 import type { EmailAccount } from "@/lib/sync";
 
@@ -15,17 +15,17 @@ export const maxDuration = 300;
 export async function POST(request: Request) {
   const secret = process.env.CRON_SECRET;
 
-  if (!secret || !isConfigured() || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  if (!secret || !hasCredentialKey() || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return NextResponse.json(
       {
         error:
-          "Inbox sync is not configured. Needs CRON_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and SUPABASE_SERVICE_ROLE_KEY.",
+          "Inbox sync is not configured. Needs CRON_SECRET, CREDENTIAL_KEY and SUPABASE_SERVICE_ROLE_KEY.",
       },
       { status: 501 }
     );
   }
 
-  if (request.headers.get("authorization") !== `Bearer ${secret}`) {
+  if (!secretsMatch(request.headers.get("authorization") ?? "", `Bearer ${secret}`)) {
     return NextResponse.json({ error: "Not authorised." }, { status: 401 });
   }
 
@@ -35,7 +35,9 @@ export async function POST(request: Request) {
   // known to be dead, so calling Google again only earns another rejection.
   const { data: accounts } = await supabase
     .from("email_accounts")
-    .select("user_id, email_address, access_token, refresh_token, expires_at, last_synced_at")
+    .select(
+      "user_id, provider, email_address, auth_method, secret, imap_host, imap_port, access_token, expires_at, last_synced_at"
+    )
     .eq("needs_reauth", false);
 
   let filed = 0;
