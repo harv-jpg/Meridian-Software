@@ -68,28 +68,36 @@ export interface FiledMessage {
  * against the wrong client is worse than not filing it at all — it puts words
  * in front of you attributed to someone who never said them.
  *
- * @param connectedAddress The mailbox that was connected, lowercased.
- * @param byAddress        Client id keyed by lowercased client email.
+ * Direction is decided by which side of the message the client is on, not by
+ * whether the sender is the connected mailbox. That distinction matters: plenty
+ * of people authenticate as one address and send as another — an iCloud custom
+ * domain, a Gmail "send mail as" alias, a shared studio address. Keying off the
+ * connected address silently dropped every message such a person sent, because
+ * it matched neither side. Keying off the client works whatever name you send
+ * under.
+ *
+ * @param byAddress Client id keyed by lowercased client email.
  */
 export function fileMessage(
   message: GmailMessage,
-  connectedAddress: string,
   byAddress: Map<string, string>
 ): FiledMessage | null {
   const from = parseAddress(header(message, "From"));
   const recipients = parseAddressList(header(message, "To"));
 
-  const outbound = from === connectedAddress;
-  // On a message you sent, the client is a recipient. On one you received,
-  // the client is the sender.
-  const candidates = outbound ? recipients : from ? [from] : [];
+  // If a client sent it, they wrote to you. Otherwise, if a client is on the
+  // receiving end, you wrote to them.
+  let clientId = from ? byAddress.get(from) : undefined;
+  let outbound = false;
 
-  let clientId: string | undefined;
-  for (const address of candidates) {
-    const match = byAddress.get(address);
-    if (match) {
-      clientId = match;
-      break;
+  if (!clientId) {
+    for (const address of recipients) {
+      const match = byAddress.get(address);
+      if (match) {
+        clientId = match;
+        outbound = true;
+        break;
+      }
     }
   }
   if (!clientId) return null;

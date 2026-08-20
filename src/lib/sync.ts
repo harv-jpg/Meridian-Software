@@ -147,10 +147,9 @@ export async function syncAccount(
     throw e;
   }
 
-  const connected = account.email_address.trim().toLowerCase();
   const filed: FiledMessage[] = [];
   for (const message of messages) {
-    const row = fileMessage(message, connected, byAddress);
+    const row = fileMessage(message, byAddress);
     if (row) filed.push(row);
   }
 

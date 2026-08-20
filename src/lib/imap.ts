@@ -83,6 +83,95 @@ export async function verifyCredentials(creds: ImapCredentials): Promise<void> {
 }
 
 /**
+ * Where this account keeps sent mail.
+ *
+ * INBOX alone holds only what arrived, so scanning it and nothing else files
+ * one half of a conversation and calls it the record. The name varies —
+ * "Sent", "Sent Items", "[Gmail]/Sent Mail" — so it is found by the `\\Sent`
+ * special-use flag the server advertises rather than by guessing at names.
+ *
+ * Returns null when the server advertises none, which is rare and simply means
+ * received mail only.
+ */
+async function sentMailbox(client: ImapFlow): Promise<string | null> {
+  try {
+    const boxes = await client.list();
+    const sent = boxes.find(
+      (b) => b.specialUse === "\\Sent" || b.path.toLowerCase() === "sent"
+    );
+    return sent?.path ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Envelopes from one mailbox, newest first.
+ */
+async function fetchFrom(
+  client: ImapFlow,
+  mailbox: string,
+  since: Date,
+  max: number
+): Promise<GmailMessage[]> {
+  const messages: GmailMessage[] = [];
+  let lock;
+  try {
+    lock = await client.getMailboxLock(mailbox);
+  } catch {
+    // A mailbox that vanished between listing and opening is not worth
+    // failing the whole sync over.
+    return messages;
+  }
+
+  try {
+    const uids = await client.search({ since }, { uid: true });
+    if (!uids || uids.length === 0) return messages;
+
+    // Newest first, then capped — a mailbox quiet for months should not spend
+    // the whole budget on its oldest messages.
+    const wanted = uids.slice(-max).reverse();
+
+    for await (const row of client.fetch(
+      wanted,
+      { envelope: true, uid: true },
+      { uid: true }
+    )) {
+      const env = row.envelope;
+      if (!env) continue;
+
+      const from = env.from?.[0];
+      const headers: GmailHeader[] = [
+        { name: "From", value: from ? formatAddress(from.name, from.address) : "" },
+        {
+          name: "To",
+          value: (env.to ?? [])
+            .map((a) => formatAddress(a.name, a.address))
+            .join(", "),
+        },
+        { name: "Subject", value: env.subject ?? "" },
+      ];
+
+      const sent = env.date ? new Date(env.date) : null;
+      messages.push({
+        // messageId is the mailbox-independent identity, so the same message
+        // seen in two folders — or after a reconnect renumbers UIDs — is one
+        // row, not two.
+        id: env.messageId || `${mailbox}-${row.uid}`,
+        threadId: env.inReplyTo || env.messageId || `${mailbox}-${row.uid}`,
+        snippet: undefined,
+        internalDate: sent ? String(sent.getTime()) : undefined,
+        payload: { headers },
+      });
+    }
+  } finally {
+    lock.release();
+  }
+
+  return messages;
+}
+
+/**
  * Messages since a date, newest first, as the shape the filing logic expects.
  *
  * Reuses `GmailMessage` rather than inventing a parallel type. That shape is
@@ -101,56 +190,28 @@ export async function fetchSince(
   max: number
 ): Promise<GmailMessage[]> {
   const client = connection(creds);
-  const messages: GmailMessage[] = [];
 
   try {
     await client.connect();
-    const lock = await client.getMailboxLock("INBOX");
-    try {
-      const uids = await client.search({ since }, { uid: true });
-      if (!uids || uids.length === 0) return [];
 
-      // Newest first, then capped — a mailbox that has been quiet for months
-      // should not spend the whole budget on its oldest messages.
-      const wanted = uids.slice(-max).reverse();
+    // Received and sent, because "mail with this client" means both halves of
+    // the conversation. The budget is split so a busy inbox cannot crowd out
+    // every reply you ever wrote.
+    const half = Math.max(1, Math.floor(max / 2));
+    const inbox = await fetchFrom(client, "INBOX", since, half);
 
-      for await (const row of client.fetch(
-        wanted,
-        { envelope: true, uid: true },
-        { uid: true }
-      )) {
-        const env = row.envelope;
-        if (!env) continue;
+    const sentPath = await sentMailbox(client);
+    const sent = sentPath
+      ? await fetchFrom(client, sentPath, since, max - inbox.length)
+      : [];
 
-        const from = env.from?.[0];
-        const headers: GmailHeader[] = [
-          {
-            name: "From",
-            value: from ? formatAddress(from.name, from.address) : "",
-          },
-          {
-            name: "To",
-            value: (env.to ?? [])
-              .map((a) => formatAddress(a.name, a.address))
-              .join(", "),
-          },
-          { name: "Subject", value: env.subject ?? "" },
-        ];
-
-        const sent = env.date ? new Date(env.date) : null;
-        messages.push({
-          // messageId is the mailbox-independent identity, so the same message
-          // seen twice — or after a reconnect that renumbers UIDs — is one row.
-          id: env.messageId || `uid-${row.uid}`,
-          threadId: env.inReplyTo || env.messageId || `uid-${row.uid}`,
-          snippet: undefined,
-          internalDate: sent ? String(sent.getTime()) : undefined,
-          payload: { headers },
-        });
-      }
-    } finally {
-      lock.release();
-    }
+    // One row per message even when a server lists it in both folders.
+    const seen = new Set<string>();
+    return [...inbox, ...sent].filter((m) => {
+      if (seen.has(m.id)) return false;
+      seen.add(m.id);
+      return true;
+    });
   } catch (e) {
     if (isAuthFailure(e)) {
       throw new ImapAuthError("The mail server rejected the stored credential.");
@@ -159,8 +220,6 @@ export async function fetchSince(
   } finally {
     closeQuietly(client);
   }
-
-  return messages;
 }
 
 /** Never let tearing down a connection replace the real error. */

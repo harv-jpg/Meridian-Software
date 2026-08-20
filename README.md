@@ -134,6 +134,12 @@ the wrong client is worse than not filing it at all. A message is only stored if
 it matches a client you have already added, so this never becomes a copy of your
 mailbox.
 
+Both halves of the conversation: the sync reads the inbox and the sent folder,
+found by the `\Sent` flag the server advertises rather than by guessing at
+names. Direction is decided by which side of a message the client is on, not by
+whether you were the sender — so sending under an alias or a custom domain, as
+iCloud and Gmail both allow, still files correctly.
+
 **Envelopes only.** The sync asks for sender, recipients, subject and date, and
 never downloads a body. The record says what happened and when; reading the
 thread is what your mail app is for.

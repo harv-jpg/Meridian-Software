@@ -97,11 +97,7 @@ describe("fileMessage", () => {
   const byAddress = new Map([["sam@fenn.co.uk", "c1"]]);
 
   it("files an inbound message against the sender", () => {
-    const filed = fileMessage(
-      message({ From: "Sam Fenn <sam@fenn.co.uk>", To: ME, Subject: "Re: rebrand" }),
-      ME,
-      byAddress
-    );
+    const filed = fileMessage(message({ From: "Sam Fenn <sam@fenn.co.uk>", To: ME, Subject: "Re: rebrand" }), byAddress);
     expect(filed).toMatchObject({
       client_id: "c1",
       direction: "in",
@@ -111,26 +107,18 @@ describe("fileMessage", () => {
   });
 
   it("files an outbound message against the recipient", () => {
-    const filed = fileMessage(
-      message({ From: `Me <${ME}>`, To: "Sam Fenn <sam@fenn.co.uk>" }),
-      ME,
-      byAddress
-    );
+    const filed = fileMessage(message({ From: `Me <${ME}>`, To: "Sam Fenn <sam@fenn.co.uk>" }), byAddress);
     expect(filed).toMatchObject({ client_id: "c1", direction: "out" });
   });
 
   it("finds the client among several recipients", () => {
-    const filed = fileMessage(
-      message({ From: ME, To: "someone@else.com, sam@fenn.co.uk" }),
-      ME,
-      byAddress
-    );
+    const filed = fileMessage(message({ From: ME, To: "someone@else.com, sam@fenn.co.uk" }), byAddress);
     expect(filed?.client_id).toBe("c1");
   });
 
   it("ignores a message involving nobody on the list", () => {
     expect(
-      fileMessage(message({ From: "spam@nowhere.com", To: ME }), ME, byAddress)
+      fileMessage(message({ From: "spam@nowhere.com", To: ME }), byAddress)
     ).toBeNull();
   });
 
@@ -138,40 +126,55 @@ describe("fileMessage", () => {
     // A colleague at the same company is not the client, and filing their
     // words under the client's name would be worse than not filing them.
     expect(
-      fileMessage(
-        message({ From: "someone.else@fenn.co.uk", To: ME }),
-        ME,
-        byAddress
-      )
+      fileMessage(message({ From: "someone.else@fenn.co.uk", To: ME }), byAddress)
     ).toBeNull();
   });
 
   it("converts Gmail's epoch milliseconds to a timestamp", () => {
-    const filed = fileMessage(
-      message({ From: "sam@fenn.co.uk", To: ME }),
-      ME,
-      byAddress
-    );
+    const filed = fileMessage(message({ From: "sam@fenn.co.uk", To: ME }), byAddress);
     expect(filed?.sent_at).toBe("2026-08-18T14:00:00.000Z");
   });
 
   it("refuses a message with no usable date", () => {
     // Undated, it cannot take its place on a chronological record.
     expect(
+      fileMessage(message({ From: "sam@fenn.co.uk", To: ME }, { internalDate: undefined }), byAddress)
+    ).toBeNull();
+  });
+
+  it("files mail sent from an alias, not just from the connected address", () => {
+    // The case this rule exists for: authenticate as an iCloud address, send
+    // from a custom domain on the same account. Keying direction off the
+    // connected mailbox dropped every such message silently.
+    const filed = fileMessage(
+      message({ From: "Harvey <harvey@thestudio.co.uk>", To: "sam@fenn.co.uk" }),
+      byAddress
+    );
+    expect(filed).toMatchObject({ client_id: "c1", direction: "out" });
+  });
+
+  it("treats the client as the sender even when they are also a recipient", () => {
+    // A client replying-all has their own address on both sides. It is still
+    // mail they wrote.
+    const filed = fileMessage(
+      message({ From: "sam@fenn.co.uk", To: "sam@fenn.co.uk, someone@else.com" }),
+      byAddress
+    );
+    expect(filed?.direction).toBe("in");
+  });
+
+  it("still ignores mail between two other people", () => {
+    // No client on either side, whoever sent it.
+    expect(
       fileMessage(
-        message({ From: "sam@fenn.co.uk", To: ME }, { internalDate: undefined }),
-        ME,
+        message({ From: "a@nowhere.com", To: "b@nowhere.com" }),
         byAddress
       )
     ).toBeNull();
   });
 
   it("carries the thread id through, so a conversation stays one thing", () => {
-    const filed = fileMessage(
-      message({ From: "sam@fenn.co.uk", To: ME }, { threadId: "t9" }),
-      ME,
-      byAddress
-    );
+    const filed = fileMessage(message({ From: "sam@fenn.co.uk", To: ME }, { threadId: "t9" }), byAddress);
     expect(filed?.thread_id).toBe("t9");
   });
 });
