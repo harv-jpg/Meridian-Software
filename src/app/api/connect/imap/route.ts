@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { encryptSecret, hasCredentialKey } from "@/lib/crypto";
 import { ImapAuthError, verifyCredentials } from "@/lib/imap";
-import { findProvider, providerColumn } from "@/lib/providers";
+import { findProvider, normaliseSecret, providerColumn } from "@/lib/providers";
 
 /**
  * Connects a mailbox with an app password.
@@ -47,7 +47,12 @@ export async function POST(request: Request) {
 
   const provider = findProvider(body.providerId ?? "");
   const email = body.email?.trim();
-  const password = body.password;
+  // Google shows app passwords as "abcd efgh ijkl mnop"; those spaces are
+  // display formatting, and pasting them verbatim fails with an unhelpful
+  // rejection from the mail server.
+  const password = provider && body.password
+    ? normaliseSecret(provider, body.password)
+    : body.password;
 
   if (!provider || !email || !password) {
     return NextResponse.json(

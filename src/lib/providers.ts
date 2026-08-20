@@ -19,11 +19,21 @@ export interface Provider {
   setupUrl?: string;
   /** Shown under the form; says what they are about to be asked for. */
   hint?: string;
+  /**
+   * True where the credential is a generated app password shown in groups —
+   * Google's `abcd efgh ijkl mnop`. Those spaces are display formatting and
+   * are not part of the password, so they are stripped before use.
+   *
+   * Not set for `custom`, where a user-chosen password may legitimately
+   * contain a space and removing one would break a working credential.
+   */
+  groupedPassword?: boolean;
 }
 
 export const PROVIDERS: Provider[] = [
   {
     id: "gmail",
+    groupedPassword: true,
     label: "Gmail",
     host: "imap.gmail.com",
     port: 993,
@@ -41,6 +51,7 @@ export const PROVIDERS: Provider[] = [
   },
   {
     id: "fastmail",
+    groupedPassword: true,
     label: "Fastmail",
     host: "imap.fastmail.com",
     port: 993,
@@ -50,6 +61,7 @@ export const PROVIDERS: Provider[] = [
   },
   {
     id: "icloud",
+    groupedPassword: true,
     label: "iCloud",
     host: "imap.mail.me.com",
     port: 993,
@@ -69,6 +81,20 @@ export const PROVIDERS: Provider[] = [
 
 export function findProvider(id: string): Provider | undefined {
   return PROVIDERS.find((p) => p.id === id);
+}
+
+/**
+ * The credential as the mail server wants it.
+ *
+ * Surrounding whitespace always goes — that is a paste artefact whatever the
+ * provider. Internal spaces go only where the provider issues app passwords in
+ * groups, because there they are formatting; elsewhere a space could be part
+ * of the password someone actually chose.
+ */
+export function normaliseSecret(provider: Provider, secret: string): string {
+  return provider.groupedPassword
+    ? secret.replace(/\s+/g, "")
+    : secret.trim();
 }
 
 /**
